@@ -23,7 +23,24 @@ def load_articles(path: str = ARTICLES_PATH) -> pd.DataFrame:
 
 
 def load_prices(db_path: str = DB_PATH) -> pd.DataFrame:
-    raise NotImplementedError
+    if not Path(db_path).exists():
+        print(f"[錯誤] 找不到 {db_path}，請確認資料庫路徑")
+        sys.exit(1)
+    conn = sqlite3.connect(db_path)
+    df = pd.read_sql(
+        "SELECT stock_code, stock_name, change_pct, quote_date "
+        "FROM tw_stock_list WHERE quote_date IS NOT NULL",
+        conn,
+    )
+    conn.close()
+    # 取最新日期快照
+    latest = df["quote_date"].max()
+    df = df[df["quote_date"] == latest].copy()
+    # 解析 "+1.20%" → 1.20
+    df["change_pct_float"] = (
+        df["change_pct"].str.replace("%", "", regex=False).astype(float)
+    )
+    return df
 
 
 def compute_topic_heat(articles: pd.DataFrame) -> pd.DataFrame:

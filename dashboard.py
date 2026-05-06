@@ -2,31 +2,16 @@
 import sys
 import sqlite3
 import webbrowser
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.io as pio
 
 BASE_DIR = Path(__file__).resolve().parent
 ARTICLES_PATH = BASE_DIR / "output" / "result_all.csv"
 DB_PATH = BASE_DIR / "data" / "tw_stock_list.sqlite3"
 OUTPUT_PATH = BASE_DIR / "output" / "dashboard.html"
-
-_C = dict(
-    navy_deep   = "#060E1F",
-    navy_dark   = "#0A1628",
-    navy_card   = "#0F2040",
-    navy_border = "#1E3A5F",
-    gold        = "#C9A84C",
-    gold_light  = "#E8C97A",
-    text_pri    = "#E8EDF5",
-    text_sec    = "#8A9BB5",
-    up          = "#2ECC71",
-    down        = "#E74C3C",
-)
 
 
 # ── Data loaders ─────────────────────────────────────────────────────────────

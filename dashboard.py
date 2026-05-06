@@ -44,11 +44,31 @@ def load_prices(db_path: str = DB_PATH) -> pd.DataFrame:
 
 
 def compute_topic_heat(articles: pd.DataFrame) -> pd.DataFrame:
-    raise NotImplementedError
+    heat = (
+        articles.groupby(["label_fine", "label_medium"])
+        .size()
+        .reset_index(name="article_count")
+        .sort_values("article_count", ascending=False)
+    )
+    return heat
 
 
 def compute_topic_price(articles: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
-    raise NotImplementedError
+    merged = articles.merge(prices[["stock_code", "change_pct_float"]],
+                            left_on="stock_id", right_on="stock_code", how="inner")
+    # Per-stock average: each stock counts once regardless of article count
+    deduped = merged.drop_duplicates(subset=["stock_id", "label_fine"])
+    heat = compute_topic_heat(articles)
+    stats = (
+        deduped.groupby(["label_fine", "label_medium"])
+        .agg(
+            avg_change_pct=("change_pct_float", "mean"),
+            stock_count=("stock_id", "nunique"),
+        )
+        .reset_index()
+    )
+    stats = stats.merge(heat, on=["label_fine", "label_medium"], how="left")
+    return stats
 
 
 def compute_stock_stats(articles: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:

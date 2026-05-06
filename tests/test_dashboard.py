@@ -1,7 +1,7 @@
 import pytest
 import pandas as pd
 import sqlite3
-from dashboard import load_articles, load_prices
+from dashboard import load_articles, load_prices, compute_topic_heat, compute_topic_price
 
 SAMPLE_CSV = """stock_id,industry_name,ArticleCreateTime,label_medium,label_fine
 1101,水泥工業,2026-03-12,合併財務報告公告,季合併財報公告
@@ -58,3 +58,50 @@ def test_load_prices_change_pct_is_float(tmp_path):
 def test_load_prices_missing_db():
     with pytest.raises(SystemExit):
         load_prices("nonexistent.sqlite3")
+
+
+def _sample_articles():
+    return pd.DataFrame({
+        "stock_id": ["1101", "1101", "2330", "2330", "2330"],
+        "label_fine": ["AI液冷", "AI液冷", "AI液冷", "航運指數", "航運指數"],
+        "label_medium": ["AI科技", "AI科技", "AI科技", "航運", "航運"],
+        "ArticleCreateTime": ["2026-03-10"] * 5,
+    })
+
+
+def _sample_prices():
+    return pd.DataFrame({
+        "stock_code": ["1101", "2330"],
+        "stock_name": ["台泥", "台積電"],
+        "change_pct_float": [1.20, -0.50],
+    })
+
+
+def test_compute_topic_heat_counts():
+    heat = compute_topic_heat(_sample_articles())
+    assert set(["label_fine", "label_medium", "article_count"]).issubset(heat.columns)
+    ai_row = heat[heat["label_fine"] == "AI液冷"].iloc[0]
+    assert ai_row["article_count"] == 3
+
+
+def test_compute_topic_heat_sorted():
+    heat = compute_topic_heat(_sample_articles())
+    assert heat.iloc[0]["article_count"] >= heat.iloc[1]["article_count"]
+
+
+def test_compute_topic_price_avg():
+    stats = compute_topic_price(_sample_articles(), _sample_prices())
+    assert set(["label_fine", "label_medium", "article_count", "avg_change_pct", "stock_count"]).issubset(stats.columns)
+    ai_row = stats[stats["label_fine"] == "AI液冷"].iloc[0]
+    # 1101(+1.20) and 2330(-0.50) both in AI液冷, per-stock avg = (1.20 + (-0.50)) / 2 = 0.35
+    assert abs(ai_row["avg_change_pct"] - 0.35) < 0.01
+
+
+def test_compute_topic_price_excludes_no_price():
+    articles = _sample_articles()
+    prices = pd.DataFrame({  # only 1101
+        "stock_code": ["1101"], "stock_name": ["台泥"], "change_pct_float": [1.20]
+    })
+    stats = compute_topic_price(articles, prices)
+    # 航運指數 only has 2330; 2330 has no price data → should be excluded
+    assert "航運指數" not in stats["label_fine"].values

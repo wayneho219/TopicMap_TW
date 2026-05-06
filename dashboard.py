@@ -471,7 +471,6 @@ def _build_layout() -> html.Div:
 # ── Dash app ──────────────────────────────────────────────────────────────────
 
 app = Dash(__name__, title="國泰證券 · 概念股監控")
-app.layout = _build_layout   # 傳函式（不加括號），Dash 每次連線時呼叫
 
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
@@ -518,10 +517,16 @@ def sync_charts(selected_topic):
 
 def main() -> None:
     _load_data()
+    app.layout = _build_layout   # 資料已載入後再指定 layout
 
     def _open():
-        import time
-        time.sleep(1.2)
+        import socket, time
+        for _ in range(30):
+            try:
+                socket.create_connection(("127.0.0.1", 8050), timeout=0.3).close()
+                break
+            except OSError:
+                time.sleep(0.2)
         webbrowser.open("http://127.0.0.1:8050")
 
     threading.Thread(target=_open, daemon=True).start()

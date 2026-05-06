@@ -19,7 +19,6 @@ _stock_stats: Optional[pd.DataFrame] = None
 BASE_DIR = Path(__file__).resolve().parent
 ARTICLES_PATH = BASE_DIR / "output" / "result_all.csv"
 DB_PATH = BASE_DIR / "data" / "tw_stock_list.sqlite3"
-OUTPUT_PATH = BASE_DIR / "output" / "dashboard.html"
 
 
 # ── Data loaders ─────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 # dashboard.py
 import sys
 import sqlite3
+import threading
 import webbrowser
 from pathlib import Path
 from typing import Optional
@@ -465,3 +466,68 @@ def _build_layout() -> html.Div:
         ], style={"padding": "24px 32px 36px", "maxWidth": "1680px", "margin": "0 auto"}),
 
     ], style={"fontFamily": _FONT, "background": _BG, "minHeight": "100vh"})
+
+
+# ── Dash app ──────────────────────────────────────────────────────────────────
+
+app = Dash(__name__, title="國泰證券 · 概念股監控")
+app.layout = _build_layout   # 傳函式（不加括號），Dash 每次連線時呼叫
+
+
+# ── Callbacks ─────────────────────────────────────────────────────────────────
+
+@app.callback(
+    Output("selected-topic", "data"),
+    Input("heat-chart",    "clickData"),
+    Input("scatter-chart", "clickData"),
+    State("selected-topic", "data"),
+    prevent_initial_call=True,
+)
+def update_selected_topic(heat_click, scatter_click, current):
+    triggered = ctx.triggered_id
+
+    if triggered == "heat-chart" and heat_click:
+        clicked = heat_click["points"][0]["customdata"]
+        return None if clicked == current else clicked
+
+    if triggered == "scatter-chart" and scatter_click:
+        clicked = scatter_click["points"][0]["customdata"]
+        return None if clicked == current else clicked
+
+    return current
+
+
+@app.callback(
+    Output("heat-chart",    "figure"),
+    Output("scatter-chart", "figure"),
+    Output("stock-table",   "data"),
+    Output("filter-badge",  "children"),
+    Input("selected-topic", "data"),
+)
+def sync_charts(selected_topic):
+    heat_fig    = build_heat_figure(_topic_heat, selected_topic)
+    scatter_fig = build_scatter_figure(_topic_stats, selected_topic)
+    table_data  = filter_stock_table(_stock_stats, selected_topic)
+
+    badge = f"{selected_topic}  ×" if selected_topic else "（未篩選）"
+
+    return heat_fig, scatter_fig, table_data, badge
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def main() -> None:
+    _load_data()
+
+    def _open():
+        import time
+        time.sleep(1.2)
+        webbrowser.open("http://127.0.0.1:8050")
+
+    threading.Thread(target=_open, daemon=True).start()
+    print("[啟動] http://127.0.0.1:8050  （Ctrl-C 停止）")
+    app.run(debug=False, host="127.0.0.1", port=8050)
+
+
+if __name__ == "__main__":
+    main()

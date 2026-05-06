@@ -14,7 +14,12 @@ OUTPUT_PATH = "dashboard.html"
 
 
 def load_articles(path: str = ARTICLES_PATH) -> pd.DataFrame:
-    raise NotImplementedError
+    if not Path(path).exists():
+        print(f"[錯誤] 找不到 {path}，請先執行 Phase 2 產生 result_all.csv")
+        sys.exit(1)
+    df = pd.read_csv(path)
+    df["stock_id"] = df["stock_id"].astype(str)
+    return df
 
 
 def load_prices(db_path: str = DB_PATH) -> pd.DataFrame:

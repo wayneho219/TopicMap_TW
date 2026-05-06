@@ -36,10 +36,12 @@ def load_prices(db_path: str = DB_PATH) -> pd.DataFrame:
     # 取最新日期快照
     latest = df["quote_date"].max()
     df = df[df["quote_date"] == latest].copy()
-    # 解析 "+1.20%" → 1.20；過濾空白或無效值
-    cleaned = df["change_pct"].str.strip().str.replace("%", "", regex=False)
-    df = df[cleaned != ""].copy()
-    df["change_pct_float"] = cleaned[cleaned != ""].astype(float)
+    # 解析 "+1.20%" → 1.20；無效值轉 NaN 後丟棄
+    df["change_pct_float"] = pd.to_numeric(
+        df["change_pct"].str.strip().str.replace("%", "", regex=False),
+        errors="coerce",
+    )
+    df = df.dropna(subset=["change_pct_float"]).copy()
     return df
 
 

@@ -60,6 +60,18 @@ python topic_model.py
 
 **Input required:** `articles.csv` with columns `ArticleText`, `ArticleCreateTime`, `StockId`.
 
+### Dashboard (`dashboard.py`)
+
+先完成 Phase 2，再執行：
+```bash
+python dashboard.py
+```
+
+輸出 `dashboard.html`（自動開啟瀏覽器）。包含三個分區：
+- 主題熱度排行（橫向長條圖）
+- 熱度 × 漲跌幅散點圖
+- 個股主題明細表
+
 **Caching:** Embeddings are cached to `_embeddings.npy` to avoid recomputation. Delete this file to force re-embedding.
 
 ## Architecture
@@ -89,6 +101,14 @@ RSS Feeds → rss_scraper.py → articles.csv
 5. **Auto-detection** — Calinski-Harabasz score selects optimal cluster counts (when `AUTO_LEVELS=True`)
 6. **Keyword extraction** — TF-IDF + jieba tokenization per cluster
 7. **Visualization** — Interactive HTML: scatter plots, icicle/treemap/sunburst hierarchy charts, dendrogram
+
+## LLM Wiki
+
+本專案維護一個 LLM wiki，位於 `wiki/`，原始來源放在 `raw/`。
+
+- 進入 wiki 前，先讀 `wiki/SCHEMA.md`（慣例設定）
+- 查詢時，先讀 `wiki/index.md` 找候選頁面
+- 操作後，將記錄附加至 `wiki/log.md`
 
 ### Intermediate Files (generated, not committed)
 

@@ -7,6 +7,13 @@ from typing import Optional
 
 import pandas as pd
 import plotly.graph_objects as go
+from dash import Dash, html, dcc, Input, Output, State, ctx
+from dash import dash_table
+
+# 啟動時載入一次，Callback 直接引用
+_topic_heat:  Optional[pd.DataFrame] = None
+_topic_stats: Optional[pd.DataFrame] = None
+_stock_stats: Optional[pd.DataFrame] = None
 
 BASE_DIR = Path(__file__).resolve().parent
 ARTICLES_PATH = BASE_DIR / "output" / "result_all.csv"
@@ -253,4 +260,202 @@ def build_scatter_figure(
     return fig
 
 
-# ── (Tasks 4 and 5 will add layout and callbacks here) ───────────────────────
+def _load_data() -> None:
+    global _topic_heat, _topic_stats, _stock_stats
+    articles     = load_articles()
+    prices       = load_prices()
+    _topic_heat  = compute_topic_heat(articles)
+    _topic_stats = compute_topic_price(articles, prices)
+    _stock_stats = compute_stock_stats(articles, prices)
+
+
+def _kpi_card(label: str, value: str, sub: str,
+              accent: str = _GREEN) -> html.Div:
+    return html.Div([
+        html.Div(label, style={"fontSize": "10px", "color": _TXT_SEC,
+                               "textTransform": "uppercase",
+                               "letterSpacing": "0.12em", "marginBottom": "10px"}),
+        html.Div(value, style={"fontSize": "28px", "fontWeight": "700",
+                               "color": accent, "lineHeight": "1",
+                               "marginBottom": "5px",
+                               "fontVariantNumeric": "tabular-nums"}),
+        html.Div(sub,   style={"fontSize": "11px", "color": "rgba(136,136,136,.6)"}),
+    ], style={
+        "background":   _CARD,
+        "border":       f"1px solid {_GREEN_BRD}",
+        "borderLeft":   f"3px solid {accent}",
+        "borderRadius": "4px",
+        "padding":      "16px 20px",
+        "transition":   "transform .15s",
+    })
+
+
+def _chart_card(title: str, *children) -> html.Div:
+    return html.Div([
+        html.Div([
+            html.Div(style={"width": "3px", "height": "14px",
+                            "background": _GREEN, "borderRadius": "2px"}),
+            html.Span(title, style={"fontWeight": "600", "color": _TXT,
+                                    "fontSize": "13px", "letterSpacing": "0.05em"}),
+        ], style={"display": "flex", "alignItems": "center", "gap": "8px",
+                  "padding": "12px 16px",
+                  "borderBottom": f"1px solid {_GREEN_BRD}"}),
+        html.Div(list(children), style={"padding": "2px"}),
+    ], style={
+        "background":   _CARD,
+        "border":       f"1px solid {_GREEN_BRD}",
+        "borderRadius": "4px",
+        "overflow":     "hidden",
+    })
+
+
+def _build_layout() -> html.Div:
+    th = _topic_heat
+    ss = _stock_stats
+
+    avg = float(_stock_stats["change_pct_float"].mean()) if ss is not None and len(ss) else 0.0
+    avg_str   = f"+{avg:.2f}%" if avg >= 0 else f"{avg:.2f}%"
+    avg_color = _UP if avg >= 0 else _DOWN
+
+    n_topics  = int(th["label_fine"].nunique()) if th is not None else 0
+    n_stocks  = int(ss["stock_id"].nunique())   if ss is not None else 0
+    n_articles= int(th["article_count"].sum())  if th is not None else 0
+
+    NAV_STYLE = {
+        "background": _CARD,
+        "borderBottom": f"3px solid {_GREEN}",
+        "padding": "0 32px",
+        "height": "60px",
+        "display": "flex",
+        "alignItems": "center",
+        "justifyContent": "space-between",
+        "position": "sticky",
+        "top": "0",
+        "zIndex": "100",
+    }
+
+    return html.Div([
+        dcc.Store(id="selected-topic", data=None),
+
+        # ── Nav ────────────────────────────────────────────────────────────
+        html.Div([
+            html.Div([
+                html.Div(style={"width": "4px", "height": "22px",
+                                "background": _GREEN, "borderRadius": "2px"}),
+                html.Span("國泰證券", style={"color": _GREEN, "fontWeight": "700",
+                                            "fontSize": "17px", "letterSpacing": "0.06em"}),
+                html.Span("｜ 概念股監控系統",
+                          style={"color": _TXT_SEC, "fontSize": "12px", "marginLeft": "10px"}),
+            ], style={"display": "flex", "alignItems": "center", "gap": "12px"}),
+            html.Div([
+                html.Span("● 即時",
+                          style={"background": _GREEN, "color": "#fff",
+                                 "fontSize": "10px", "padding": "3px 10px",
+                                 "borderRadius": "12px"}),
+            ]),
+        ], style=NAV_STYLE),
+
+        # ── Main ───────────────────────────────────────────────────────────
+        html.Div([
+
+            # KPI row
+            html.Div([
+                _kpi_card("NLP 監控主題", str(n_topics),  "細層分群主題數"),
+                _kpi_card("追蹤個股",      str(n_stocks),  "有效配對股票"),
+                _kpi_card("分析文章",       str(n_articles),"語料庫總篇數"),
+                _kpi_card("市場均漲跌",     avg_str,        "追蹤個股均值", avg_color),
+                html.Div([
+                    html.Div("已篩選主題", style={"fontSize": "10px", "color": _TXT_SEC,
+                                                  "textTransform": "uppercase",
+                                                  "letterSpacing": "0.12em",
+                                                  "marginBottom": "10px"}),
+                    html.Div(id="filter-badge",
+                             style={"fontSize": "13px", "fontWeight": "600",
+                                    "color": _GREEN, "lineHeight": "1.3"}),
+                ], style={
+                    "background": _CARD,
+                    "border":     f"1px solid {_GREEN_BRD}",
+                    "borderLeft": f"3px solid {_GREEN}",
+                    "borderRadius": "4px",
+                    "padding": "16px 20px",
+                }),
+            ], style={"display": "grid",
+                      "gridTemplateColumns": "repeat(5,1fr)",
+                      "gap": "12px", "marginBottom": "16px"}),
+
+            # Charts top row
+            html.Div([
+                _chart_card("主題熱度排行",
+                            dcc.Graph(id="heat-chart",
+                                      figure=build_heat_figure(th),
+                                      config={"displayModeBar": False},
+                                      style={"height": "100%"})),
+                _chart_card("熱度 × 漲跌幅分析",
+                            dcc.Graph(id="scatter-chart",
+                                      figure=build_scatter_figure(_topic_stats),
+                                      config={"displayModeBar": False})),
+            ], style={"display": "grid", "gridTemplateColumns": "1fr 1fr",
+                      "gap": "14px", "marginBottom": "14px"}),
+
+            # Table
+            _chart_card("個股主題明細",
+                dash_table.DataTable(
+                    id="stock-table",
+                    columns=[
+                        {"name": "代碼",     "id": "stock_id"},
+                        {"name": "名稱",     "id": "stock_name"},
+                        {"name": "細層主題", "id": "label_fine"},
+                        {"name": "中層主題", "id": "label_medium"},
+                        {"name": "文章數",   "id": "article_count"},
+                        {"name": "漲跌幅",   "id": "change_pct_str"},
+                        {"name": "", "id": "change_pct_float"},
+                    ],
+                    hidden_columns=["change_pct_float"],
+                    data=filter_stock_table(ss, None),
+                    page_size=25,
+                    sort_action="native",
+                    style_table={"overflowX": "auto"},
+                    style_header={
+                        "backgroundColor": _GREEN,
+                        "color": "#fff",
+                        "fontWeight": "600",
+                        "fontSize": "12px",
+                        "fontFamily": _FONT,
+                        "border": f"1px solid {_GREEN_BRD}",
+                        "padding": "10px 12px",
+                    },
+                    style_cell={
+                        "fontFamily": _FONT,
+                        "fontSize": "12px",
+                        "padding": "8px 12px",
+                        "border": f"1px solid {_GREEN_BRD}",
+                        "backgroundColor": _CARD,
+                        "color": _TXT,
+                    },
+                    style_data_conditional=[
+                        {"if": {"row_index": "odd"},
+                         "backgroundColor": _BG},
+                        {"if": {"filter_query": "{change_pct_float} > 0",
+                                "column_id": "change_pct_str"},
+                         "color": _UP, "fontWeight": "600"},
+                        {"if": {"filter_query": "{change_pct_float} < 0",
+                                "column_id": "change_pct_str"},
+                         "color": _DOWN, "fontWeight": "600"},
+                    ],
+                ),
+            ),
+
+            # Footer
+            html.Div(
+                "CATHAY SECURITIES CORP. · 概念股監控系統 · EventCorr AI Pipeline · 僅供內部研究參考，不構成投資建議",
+                style={"textAlign": "center", "fontSize": "10px",
+                       "color": "rgba(136,136,136,.5)",
+                       "letterSpacing": "0.1em",
+                       "marginTop": "20px",
+                       "paddingTop": "16px",
+                       "borderTop": f"1px solid {_GREEN_BRD}"},
+            ),
+
+        ], style={"padding": "24px 32px 36px", "maxWidth": "1680px", "margin": "0 auto"}),
+
+    ], style={"fontFamily": _FONT, "background": _BG, "minHeight": "100vh"})

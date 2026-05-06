@@ -72,7 +72,21 @@ def compute_topic_price(articles: pd.DataFrame, prices: pd.DataFrame) -> pd.Data
 
 
 def compute_stock_stats(articles: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
-    raise NotImplementedError
+    # 每個 (stock_id, label_fine) 的文章數
+    counts = (
+        articles.groupby(["stock_id", "label_fine", "label_medium"])
+        .size()
+        .reset_index(name="article_count")
+    )
+    # 取每支股票文章數最多的主題（主要主題）
+    idx = counts.groupby("stock_id")["article_count"].idxmax()
+    primary = counts.loc[idx].reset_index(drop=True)
+    # JOIN 股價
+    result = primary.merge(
+        prices[["stock_code", "stock_name", "change_pct_float"]],
+        left_on="stock_id", right_on="stock_code", how="inner"
+    ).drop(columns=["stock_code"])
+    return result.sort_values("article_count", ascending=False)
 
 
 def build_heat_chart(topic_heat: pd.DataFrame) -> go.Figure:

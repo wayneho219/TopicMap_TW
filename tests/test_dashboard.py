@@ -105,3 +105,19 @@ def test_compute_topic_price_excludes_no_price():
     stats = compute_topic_price(articles, prices)
     # 航運指數 only has 2330; 2330 has no price data → should be excluded
     assert "航運指數" not in stats["label_fine"].values
+
+
+def test_compute_stock_stats_columns():
+    from dashboard import compute_stock_stats
+    stats = compute_stock_stats(_sample_articles(), _sample_prices())
+    assert set(["stock_id", "stock_name", "label_fine", "label_medium",
+                "article_count", "change_pct_float"]).issubset(stats.columns)
+
+
+def test_compute_stock_stats_primary_topic():
+    from dashboard import compute_stock_stats
+    # 1101 appears in AI液冷 (2 times), so primary topic should be AI液冷
+    stats = compute_stock_stats(_sample_articles(), _sample_prices())
+    row_1101 = stats[stats["stock_id"] == "1101"].iloc[0]
+    assert row_1101["label_fine"] == "AI液冷"
+    assert row_1101["article_count"] == 2

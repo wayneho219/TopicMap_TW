@@ -11,15 +11,15 @@ PHASE = "label"    → 讀取 topic_labels.json，套用標籤並輸出視覺化
 # │    "cluster" ── 分群 + 輸出命名素材      │
 # │    "label"   ── 套用標籤 + 輸出結果      │
 # └─────────────────────────────────────────┘
-PHASE = "label"
+PHASE = "cluster"
 
 # AUTO_LEVELS = True  → 自動偵測各層最佳群數（CH 分數偏好少群，通常不建議）
 # AUTO_LEVELS = False → 使用下方 LEVELS 手動指定（建議）
 AUTO_LEVELS = False
 
 LEVELS: dict[str, int] = {   # AUTO_LEVELS=False 時才使用
-    "medium": 25,   # 建議範圍：15–30（中層主題數）
-    "fine":   60,   # 建議範圍：40–80（細層主題數）
+    "medium": 20,   # 建議範圍：15–30（中層主題數）
+    "fine":   32,   # 建議範圍：40–80（細層主題數）
 }
 
 # 自動偵測的搜尋範圍（可視需求調整）
@@ -35,6 +35,7 @@ import numpy as np
 import pandas as pd
 import jieba
 import plotly.graph_objects as go
+from filter import filter_dataframe
 
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -51,6 +52,10 @@ df = pd.read_csv("articles.csv", encoding="utf-8-sig", parse_dates=["ArticleCrea
 df = df.dropna(subset=["ArticleText"])
 df["ArticleText"] = df["ArticleText"].astype(str).str.strip()
 df["stock_id"] = df["stock_id"].astype(str)
+
+# 過濾版規雜訊（水桶公告、違規警告等）
+df, n_noise = filter_dataframe(df)
+print(f"  過濾版規雜訊: {n_noise} 篇 → 剩餘 {len(df)} 篇")
 
 # 從 tw_stocks.csv 取得產業分類（第一階層）
 stocks_df = pd.read_csv("tw_stocks.csv", encoding="utf-8-sig", dtype={"stock_code": str})
@@ -82,9 +87,9 @@ if os.path.exists(EMBED_CACHE):
     embeddings = np.load(EMBED_CACHE)
 else:
     print("STEP 2 | BGE-large-zh Embedding (1024d)")
-    embed_model = SentenceTransformer("BAAI/bge-large-zh-v1.5")
+    embed_model = SentenceTransformer("BAAI/bge-small-zh-v1.5")
     embeddings = embed_model.encode(
-        docs, batch_size=32, show_progress_bar=True, normalize_embeddings=True
+        docs, batch_size=64, show_progress_bar=True, normalize_embeddings=True
     )
     np.save(EMBED_CACHE, embeddings)
     print(f"  embedding 已存檔 → {EMBED_CACHE}")

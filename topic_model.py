@@ -11,15 +11,15 @@ PHASE = "label"    → 讀取 topic_labels.json，套用標籤並輸出視覺化
 # │    "cluster" ── 分群 + 輸出命名素材      │
 # │    "label"   ── 套用標籤 + 輸出結果      │
 # └─────────────────────────────────────────┘
-PHASE = "label"
+PHASE = "cluster"
 
 # AUTO_LEVELS = True  → 自動偵測各層最佳群數（CH 分數偏好少群，通常不建議）
 # AUTO_LEVELS = False → 使用下方 LEVELS 手動指定（建議）
 AUTO_LEVELS = False
 
 LEVELS: dict[str, int] = {   # AUTO_LEVELS=False 時才使用
-    "medium": 25,   # 建議範圍：15–30（中層主題數）
-    "fine":   60,   # 建議範圍：40–80（細層主題數）
+    "medium": 12,   # 過濾公告文後討論文較少，群數往下調
+    "fine":   20,
 }
 
 # 自動偵測的搜尋範圍（可視需求調整）
@@ -35,6 +35,7 @@ import numpy as np
 import pandas as pd
 import jieba
 import plotly.graph_objects as go
+from filter import filter_dataframe, filter_announcements_dataframe
 
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -52,8 +53,16 @@ df = df.dropna(subset=["ArticleText"])
 df["ArticleText"] = df["ArticleText"].astype(str).str.strip()
 df["stock_id"] = df["stock_id"].astype(str)
 
+# 第一道：版規雜訊（水桶公告、違規警告等）
+df, n_noise = filter_dataframe(df)
+print(f"  過濾版規雜訊: {n_noise} 篇 → 剩餘 {len(df)} 篇")
+
+# 第二道：財務公告格式文（月營收表格、財報、股利決議、排行日報等）
+df, n_announcement = filter_announcements_dataframe(df)
+print(f"  過濾公告格式: {n_announcement} 篇 → 剩餘 {len(df)} 篇")
+
 # 從 tw_stocks.csv 取得產業分類（第一階層）
-stocks_df = pd.read_csv("tw_stocks.csv", encoding="utf-8-sig", dtype={"stock_code": str})
+stocks_df = pd.read_csv("data/tw_stocks.csv", encoding="utf-8-sig", dtype={"stock_code": str})
 industry_map = stocks_df.set_index("stock_code")["industry_name"].to_dict()
 df["industry_name"] = df["stock_id"].map(industry_map).fillna("其他")
 
@@ -76,15 +85,15 @@ print(f"  產業列表: {sorted(df['industry_name'].unique())}")
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 2 ── EMBEDDING  (BGE-large-zh, 1024d)
 # ══════════════════════════════════════════════════════════════════════════════
-EMBED_CACHE = "_embeddings.npy"
+EMBED_CACHE = "cache/_embeddings.npy"
 if os.path.exists(EMBED_CACHE):
     print("STEP 2 | 載入快取 embedding（跳過重算）")
     embeddings = np.load(EMBED_CACHE)
 else:
     print("STEP 2 | BGE-large-zh Embedding (1024d)")
-    embed_model = SentenceTransformer("BAAI/bge-large-zh-v1.5")
+    embed_model = SentenceTransformer("BAAI/bge-small-zh-v1.5")
     embeddings = embed_model.encode(
-        docs, batch_size=32, show_progress_bar=True, normalize_embeddings=True
+        docs, batch_size=64, show_progress_bar=True, normalize_embeddings=True
     )
     np.save(EMBED_CACHE, embeddings)
     print(f"  embedding 已存檔 → {EMBED_CACHE}")
@@ -144,10 +153,10 @@ for level, n in LEVELS.items():
     df[f"cluster_{level}"] = arr
 
 # 中途存檔（供 Phase 2 使用）
-df.to_parquet("_checkpoint.parquet", index=False)
-np.save("_cluster_fine.npy",   cluster_assignments["fine"])
-np.save("_cluster_medium.npy", cluster_assignments["medium"])
-np.save("_linkage.npy", Z)
+df.to_parquet("cache/_checkpoint.parquet", index=False)
+np.save("cache/_cluster_fine.npy",   cluster_assignments["fine"])
+np.save("cache/_cluster_medium.npy", cluster_assignments["medium"])
+np.save("cache/_linkage.npy", Z)
 print("  分群結果已暫存")
 
 
@@ -225,17 +234,17 @@ if PHASE == "cluster":
 
             template[level][str(cid)] = ""
 
-    with open("label_input.txt", "w", encoding="utf-8") as f:
+    with open("labels/label_input.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-    with open("label_template.json", "w", encoding="utf-8") as f:
+    with open("labels/label_template.json", "w", encoding="utf-8") as f:
         json.dump(template, f, ensure_ascii=False, indent=2)
 
-    print("\n  label_input.txt   ← 貼給 LLM 或自行命名")
-    print("  label_template.json ← 填入名稱後將檔名改為 topic_labels.json")
+    print("\n  labels/label_input.txt   ← 貼給 LLM 或自行命名")
+    print("  labels/label_template.json ← 填入名稱後將檔名改為 labels/topic_labels.json")
     print("\n完成 Phase 1。命名完畢後：")
     print("  1. 將名稱填入 label_template.json")
-    print("  2. 存為 topic_labels.json")
+    print("  2. 存為 labels/topic_labels.json")
     print('  3. 將程式頂端 PHASE = "cluster" 改為 PHASE = "label"')
     print("  4. 重新執行")
 
@@ -246,16 +255,16 @@ if PHASE == "cluster":
 elif PHASE == "label":
     print("\nPHASE 2 | 套用標籤 + 輸出視覺化")
 
-    if not os.path.exists("topic_labels.json"):
-        raise FileNotFoundError("找不到 topic_labels.json，請先完成 Phase 1 命名步驟。")
+    if not os.path.exists("labels/topic_labels.json"):
+        raise FileNotFoundError("找不到 labels/topic_labels.json，請先完成 Phase 1 命名步驟。")
 
-    with open("topic_labels.json", encoding="utf-8") as f:
+    with open("labels/topic_labels.json", encoding="utf-8") as f:
         topic_labels: dict[str, dict[str, str]] = json.load(f)
 
     # 從暫存還原分群（跳過耗時步驟）
-    df = pd.read_parquet("_checkpoint.parquet")
+    df = pd.read_parquet("cache/_checkpoint.parquet")
     for level in ["medium", "fine"]:
-        arr = np.load(f"_cluster_{level}.npy")
+        arr = np.load(f"cache/_cluster_{level}.npy")
         int_labels = {int(k): v for k, v in topic_labels[level].items()}
         df[f"label_{level}"] = pd.Series(arr).map(int_labels).values
 
@@ -268,8 +277,8 @@ elif PHASE == "label":
         title="T-SNE ── 產業分布（顏色=產業，可切換 medium/fine 標籤）",
         width=1400, height=900,
     )
-    fig_scatter.write_html("tsne_industry.html", include_mathjax=False)
-    print("  tsne_industry.html")
+    fig_scatter.write_html("output/tsne_industry.html", include_mathjax=False)
+    print("  output/tsne_industry.html")
 
     for level in ["medium", "fine"]:
         fig = px.scatter(
@@ -279,8 +288,8 @@ elif PHASE == "label":
             title=f"T-SNE ── {level} 層 NLP 主題",
             width=1400, height=900,
         )
-        fig.write_html(f"tsne_{level}.html", include_mathjax=False)
-        print(f"  tsne_{level}.html")
+        fig.write_html(f"output/tsne_{level}.html", include_mathjax=False)
+        print(f"  output/tsne_{level}.html")
 
     # ── 各層主題統計 CSV ─────────────────────────────────────────────────────
     for level in ["medium", "fine"]:
@@ -291,15 +300,15 @@ elif PHASE == "label":
         )
         stat["總計"] = stat.sum(axis=1)
         stat.sort_values("總計", ascending=False).to_csv(
-            f"topics_{level}.csv", encoding="utf-8-sig"
+            f"output/topics_{level}.csv", encoding="utf-8-sig"
         )
-        print(f"  topics_{level}.csv")
+        print(f"  output/topics_{level}.csv")
 
     # ── 完整結果 ─────────────────────────────────────────────────────────────
     out_cols = ["stock_id", "industry_name", "ArticleCreateTime",
                 "label_medium", "label_fine"]
-    df[out_cols].to_csv("result_all.csv", encoding="utf-8-sig", index=False)
-    print("  result_all.csv")
+    df[out_cols].to_csv("output/result_all.csv", encoding="utf-8-sig", index=False)
+    print("  output/result_all.csv")
 
     # ══════════════════════════════════════════════════════════════════════════
     # 樹狀圓餅圖
@@ -396,8 +405,8 @@ elif PHASE == "label":
         width=1000, height=1000,
         margin=dict(t=60, l=10, r=10, b=10),
     )
-    fig_sb.write_html("tree_sunburst.html", include_mathjax=False)
-    print("  tree_sunburst.html")
+    fig_sb.write_html("output/tree_sunburst.html", include_mathjax=False)
+    print("  output/tree_sunburst.html")
 
     # ── Treemap（矩形樹圖） ──────────────────────────────────────────────────
     fig_tm = go.Figure(go.Treemap(
@@ -415,8 +424,8 @@ elif PHASE == "label":
         width=1400, height=900,
         margin=dict(t=50, l=10, r=10, b=10),
     )
-    fig_tm.write_html("tree_treemap.html", include_mathjax=False)
-    print("  tree_treemap.html")
+    fig_tm.write_html("output/tree_treemap.html", include_mathjax=False)
+    print("  output/tree_treemap.html")
 
     # ── Icicle（橫向層次圖） ─────────────────────────────────────────────────
     fig_ic = go.Figure(go.Icicle(
@@ -435,14 +444,14 @@ elif PHASE == "label":
         width=1400, height=900,
         margin=dict(t=50, l=10, r=10, b=10),
     )
-    fig_ic.write_html("tree_icicle.html", include_mathjax=False)
-    print("  tree_icicle.html")
+    fig_ic.write_html("output/tree_icicle.html", include_mathjax=False)
+    print("  output/tree_icicle.html")
 
     # ── Dendrogram ───────────────────────────────────────────────────────────
-    if os.path.exists("_linkage.npy"):
+    if os.path.exists("cache/_linkage.npy"):
         from scipy.cluster.hierarchy import dendrogram as scipy_dendrogram
 
-        Z_loaded = np.load("_linkage.npy")
+        Z_loaded = np.load("cache/_linkage.npy")
         ddata = scipy_dendrogram(Z_loaded, truncate_mode="lastp", p=60, no_plot=True)
 
         shapes_x, shapes_y = [], []
@@ -476,15 +485,15 @@ elif PHASE == "label":
             plot_bgcolor="white",
             showlegend=False,
         )
-        fig_dend.write_html("dendrogram.html", include_mathjax=False)
-        print("  dendrogram.html")
+        fig_dend.write_html("output/dendrogram.html", include_mathjax=False)
+        print("  output/dendrogram.html")
 
     print("\n完成 Phase 2！")
     print("\n輸出檔案：")
-    print("  tree_sunburst.html  ← 樹狀圓餅圖（產業 → 中主題 → 細主題）")
-    print("  tree_treemap.html   ← 矩形樹圖")
-    print("  tree_icicle.html    ← 層次圖")
-    print("  tsne_industry.html  ← T-SNE 散點（產業顏色）")
-    print("  tsne_medium.html    ← T-SNE 散點（medium 主題顏色）")
-    print("  tsne_fine.html      ← T-SNE 散點（fine 主題顏色）")
-    print("  result_all.csv      ← 完整分群結果")
+    print("  output/tree_sunburst.html  ← 樹狀圓餅圖（產業 → 中主題 → 細主題）")
+    print("  output/tree_treemap.html   ← 矩形樹圖")
+    print("  output/tree_icicle.html    ← 層次圖")
+    print("  output/tsne_industry.html  ← T-SNE 散點（產業顏色）")
+    print("  output/tsne_medium.html    ← T-SNE 散點（medium 主題顏色）")
+    print("  output/tsne_fine.html      ← T-SNE 散點（fine 主題顏色）")
+    print("  output/result_all.csv      ← 完整分群結果")

@@ -118,6 +118,8 @@ def filter_stock_table(
     stock_stats: pd.DataFrame,
     selected_topic: Optional[str],
 ) -> list[dict]:
+    if stock_stats is None:
+        return []
     df = stock_stats.copy()
     if selected_topic:
         df = df[df["label_fine"] == selected_topic]
@@ -131,6 +133,8 @@ def build_heat_figure(
     topic_heat: pd.DataFrame,
     selected: Optional[str] = None,
 ) -> go.Figure:
+    if topic_heat is None or topic_heat.empty:
+        return go.Figure()
     labels = topic_heat["label_fine"].tolist()
     counts = topic_heat["article_count"].tolist()
 
@@ -179,6 +183,8 @@ def build_scatter_figure(
     topic_stats: pd.DataFrame,
     selected: Optional[str] = None,
 ) -> go.Figure:
+    if topic_stats is None or topic_stats.empty:
+        return go.Figure()
     fig = go.Figure()
 
     if selected is None:
@@ -313,7 +319,7 @@ def _build_layout() -> html.Div:
     th = _topic_heat
     ss = _stock_stats
 
-    avg = float(_stock_stats["change_pct_float"].mean()) if ss is not None and len(ss) else 0.0
+    avg = float(ss["change_pct_float"].mean()) if ss is not None and len(ss) else 0.0
     avg_str   = f"+{avg:.2f}%" if avg >= 0 else f"{avg:.2f}%"
     avg_color = _UP if avg >= 0 else _DOWN
 

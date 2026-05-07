@@ -29,7 +29,10 @@ def _tags(market: str) -> list[str]:
 def _parse_float(val) -> float:
     if val is None:
         return 0.0
-    return float(str(val).replace('+', '').replace('%', ''))
+    try:
+        return float(str(val).replace('+', '').replace('%', ''))
+    except ValueError:
+        return 0.0
 
 @app.get('/api/stocks/{stock_id}')
 def get_stock(stock_id: str):
@@ -51,7 +54,7 @@ def get_stock(stock_id: str):
         'price': float(row['close_price']) if row['close_price'] is not None else 0.0,
         'change': _parse_float(row['change_val']),
         'changePercent': _parse_float(row['change_pct']),
-        'volume': int(row['volume']) if row['volume'] is not None else 0,
+        'volume': int(float(row['volume'])) if row['volume'] is not None else 0,
         'market': row['market'],
         'industry': row['industry_name'],
         'tags': _tags(row['market']),

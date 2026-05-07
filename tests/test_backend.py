@@ -7,8 +7,6 @@ from backend.main import app
 
 client = TestClient(app)
 
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'tw_stock_list.sqlite3')
-
 def test_get_stock_known():
     """2330 台積電應存在於 DB，回傳 200 並含必要欄位"""
     resp = client.get('/api/stocks/2330')
@@ -37,6 +35,6 @@ def test_get_stock_twse_tags():
 def test_get_stock_tpex_tags():
     """上櫃股票 tags 應含「上櫃」（用已知上櫃代號 6547）"""
     resp = client.get('/api/stocks/6547')
-    if resp.status_code == 200:
-        assert '上櫃' in resp.json()['tags']
-    # 若 DB 沒有此代號則跳過（不強制）
+    if resp.status_code != 200:
+        pytest.skip('6547 不在測試 DB 中')
+    assert '上櫃' in resp.json()['tags']

@@ -804,3 +804,282 @@
 - ✅ `customdata` 用於傳遞 label_fine，callback 從 `clickData["points"][0]["customdata"]` 讀取，與圖表定義一致
 - ✅ DataTable 含隱藏欄 `change_pct_float` 供 conditional styling 判斷漲跌色
 - ✅ 未實作 Feature B/C/D/E（YAGNI）
+
+---
+
+# Dashboard 互動化 Implementation Plan（Phase 2：Feature B/C/D/E）
+
+> 本段延續上方 Feature A 成果。以下 Task 7~10 可依序執行，並可獨立 commit。
+
+**Goal:** 在既有 Dash 聯動架構上，補齊 Feature B/C/D/E：主題時間軸、個股快速預覽、導覽搜尋與轉型股複合分數排行榜。
+
+**Architecture:** 沿用 `dcc.Store(id="selected-topic")`，新增 `search-query` 與（可選）`selected-stock` 兩個 Store；資料仍在啟動時載入一次，callbacks 僅做 filter / aggregation / style update。
+
+**Tech Stack:** `dash>=2.16`、`plotly>=5`、`pandas`、`numpy`、`pytest`
+
+---
+
+## Task 7：Feature B — 主題熱度時間軸（週折線圖）
+
+**Files:**
+- Modify: `dashboard.py`
+- Modify: `tests/test_dashboard.py`
+
+- [x] **Step 1：新增週時間軸聚合函式**
+
+  在 `dashboard.py` 的 compute 區加入：
+  - `compute_topic_timeline(articles: pd.DataFrame) -> pd.DataFrame`
+
+  規則：
+  - 使用 `ArticleCreateTime` 轉 datetime（`errors="coerce"`）
+  - 丟棄無效日期列
+  - 以 `industry_name + week_start` 聚合 `article_count`
+  - `week_start` 統一使用 `to_period("W-MON").start_time`
+
+- [x] **Step 2：新增時間軸圖建構函式**
+
+  在圖表函式區加入：
+  - `build_timeline_figure(timeline_df, selected: str | None = None, top_k: int = 6) -> go.Figure`
+
+  顯示規則：
+  - `selected is None`：只畫總量前 `top_k` 產業線
+  - `selected` 有值：顯示全部但 selected 高亮（線寬 3、opacity 1），其餘淡化（opacity 0.18）
+  - hover 顯示：產業、週起始、篇數
+
+- [x] **Step 3：將時間軸接入資料快取與 layout**
+
+  - 新增模組層變數 `_topic_timeline`
+  - `_load_data()` 內計算 `_topic_timeline = compute_topic_timeline(articles)`
+  - 在 `_build_layout()` 新增一張卡片：`dcc.Graph(id="timeline-chart", ...)`
+
+- [x] **Step 4：擴充 `sync_charts` callback**
+
+  在 callback 增加一個 Output：
+  - `Output("timeline-chart", "figure")`
+
+  並在函式內產生：
+  - `timeline_fig = build_timeline_figure(_topic_timeline, selected_topic)`
+
+- [x] **Step 5：新增/更新測試**
+
+  在 `tests/test_dashboard.py` 補測：
+  - `compute_topic_timeline` 可正確聚合週資料
+  - `build_timeline_figure` 在 selected/非 selected 兩模式 trace 數與 opacity 正確
+
+- [ ] **Step 6：驗證與 Commit**
+
+  ```bash
+  python -m pytest tests/test_dashboard.py -v
+  ```
+
+  ```bash
+  git add dashboard.py tests/test_dashboard.py
+  git commit -m "feat: add weekly industry timeline chart with selection-aware highlighting"
+  ```
+
+---
+
+## Task 8：Feature D — 導覽列搜尋 + 快速篩選
+
+**Files:**
+- Modify: `dashboard.py`
+- Modify: `tests/test_dashboard.py`
+
+- [ ] **Step 1：新增搜尋狀態與 UI**
+
+  在 layout 的 nav 區加入：
+  - `dcc.Input(id="search-input", type="text", placeholder="搜尋代碼/名稱/產業")`
+  - `html.Button("清除", id="search-clear-btn")`
+  - `dcc.Store(id="search-query", data="")`
+
+- [ ] **Step 2：新增搜尋字串更新 callback**
+
+  新增 callback：
+  - Inputs: `search-input.value`, `search-clear-btn.n_clicks`
+  - Output: `search-query.data`, `search-input.value`
+
+  行為：
+  - 按清除時 query 清空並將 input 設為空字串
+  - 一般輸入時 trim 後寫入 query
+
+- [ ] **Step 3：建立可重用篩選函式**
+
+  在 `dashboard.py` 新增：
+  - `apply_filters(df, selected_topic: str | None, search_query: str) -> pd.DataFrame`
+
+  篩選順序：
+  1) 若有 selected_topic，先過濾 `industry_name == selected_topic`
+  2) 若有 search_query，再以 `stock_id` / `stock_name` / `industry_name`（不分大小寫）模糊比對
+
+- [ ] **Step 4：整合到 `sync_charts`**
+
+  - `sync_charts` 增加 `Input("search-query", "data")`
+  - 圖表與表格皆使用 `apply_filters` 後資料
+  - 在 badge 顯示搜尋狀態（例如：`已篩選：半導體業｜關鍵字：台積`）
+
+- [ ] **Step 5：新增/更新測試**
+
+  - 測 `apply_filters`：topic-only、search-only、topic+search、no-result
+  - 測 callback 主要輸出在搜尋時不拋錯、資料量符合預期
+
+- [ ] **Step 6：驗證與 Commit**
+
+  ```bash
+  python -m pytest tests/test_dashboard.py -v
+  ```
+
+  ```bash
+  git add dashboard.py tests/test_dashboard.py
+  git commit -m "feat: add navbar search and global dashboard filtering"
+  ```
+
+---
+
+## Task 9：Feature C — 個股快速預覽側邊欄
+
+**Files:**
+- Modify: `dashboard.py`
+- Modify: `tests/test_dashboard.py`
+
+- [ ] **Step 1：新增側邊欄資料函式**
+
+  在 `dashboard.py` 新增：
+  - `build_stock_preview_payload(stock_df: pd.DataFrame, top_n: int = 8) -> dict`
+
+  輸出結構建議：
+  - `summary`: 筆數、平均漲跌、最大熱度產業
+  - `top_stocks`: 依 `article_count desc` 的前 N 檔（含 `stock_id`, `stock_name`, `change_pct_float`, `article_count`）
+
+- [ ] **Step 2：layout 新增 Preview 卡片**
+
+  在表格區旁新增欄位（或表格下方）：
+  - 卡片標題：「個股快速預覽」
+  - 區塊 1：統計摘要
+  - 區塊 2：Top N 清單（可先用 `html.Ul`/`dash_table.DataTable`）
+
+- [ ] **Step 3：整合 callback**
+
+  在 `sync_charts` 增加 Output（例如 `stock-preview.children`）：
+  - 由目前過濾後的 `stock_df` 產生 payload 並渲染
+  - 空資料時顯示「無符合條件個股」
+
+- [ ] **Step 4：新增/更新測試**
+
+  - `build_stock_preview_payload` 正常輸出 keys 與 top_n 長度
+  - 空 DataFrame 可安全返回空狀態
+
+- [ ] **Step 5：驗證與 Commit**
+
+  ```bash
+  python -m pytest tests/test_dashboard.py -v
+  ```
+
+  ```bash
+  git add dashboard.py tests/test_dashboard.py
+  git commit -m "feat: add stock quick preview sidebar synced with dashboard filters"
+  ```
+
+---
+
+## Task 10：Feature E — 轉型股複合分數排行榜
+
+**Files:**
+- Modify: `dashboard.py`
+- Modify: `tests/test_dashboard.py`
+
+- [ ] **Step 1：定義分數指標與權重**
+
+  在常數區新增：
+  - `SCORE_W_HEAT = 0.4`
+  - `SCORE_W_TREND = 0.35`
+  - `SCORE_W_PRICE = 0.25`
+
+  指標定義（MVP）：
+  - `heat_score`: 個股文章數 z-score 或 min-max
+  - `trend_score`: 近 4 週 vs 前 4 週熱度成長率（以 `ArticleCreateTime` 推導）
+  - `price_score`: `change_pct_float` 標準化分數
+
+- [ ] **Step 2：實作分數計算函式**
+
+  新增：
+  - `compute_transition_scores(articles, stock_stats) -> pd.DataFrame`
+
+  輸出欄位：
+  - `stock_id`, `stock_name`, `industry_name`
+  - `heat_score`, `trend_score`, `price_score`
+  - `transition_score`
+
+  並做防呆：
+  - 缺值補 0
+  - 避免除以 0（分母加 epsilon 或條件分支）
+
+- [ ] **Step 3：新增排行榜視圖**
+
+  在 layout 新增卡片：
+  - 標題「轉型股排行榜（複合分數）」
+  - DataTable 顯示 Top 20，可按 `transition_score` 排序
+
+- [ ] **Step 4：與既有篩選整合**
+
+  在 `sync_charts` 中：
+  - 先套用 `selected-topic + search-query`
+  - 再計算或切片排行榜資料
+  - 確保排行榜隨篩選即時更新
+
+- [ ] **Step 5：新增/更新測試**
+
+  - `compute_transition_scores` 輸出無 NaN、可排序
+  - 權重和約為 1（或在函式中 normalize）
+  - 當資料很少（1~2 檔）仍能輸出
+
+- [ ] **Step 6：驗證與 Commit**
+
+  ```bash
+  python -m pytest tests/test_dashboard.py -v
+  ```
+
+  ```bash
+  git add dashboard.py tests/test_dashboard.py
+  git commit -m "feat: add transition stock composite scoring leaderboard"
+  ```
+
+---
+
+## Task 11：Phase 2 整體驗收（B/C/D/E）
+
+- [ ] **Step 1：啟動應用驗證**
+
+  ```bash
+  python dashboard.py
+  ```
+
+- [ ] **Step 2：B 功能驗收**
+
+  - [ ] 顯示週時間軸折線圖
+  - [ ] 點選產業後，該產業線高亮、其他淡化
+  - [ ] 清除選取後恢復預設 Top K
+
+- [ ] **Step 3：D 功能驗收**
+
+  - [ ] 搜尋代碼/名稱/產業可即時篩選
+  - [ ] 清除按鈕可恢復全量資料
+  - [ ] 搜尋條件可與 selected-topic 疊加
+
+- [ ] **Step 4：C 功能驗收**
+
+  - [ ] 側欄顯示摘要與 Top N
+  - [ ] 篩選改變時側欄同步更新
+  - [ ] 無資料時顯示空狀態文案
+
+- [ ] **Step 5：E 功能驗收**
+
+  - [ ] 排行榜顯示 `transition_score` 並可排序
+  - [ ] 各子分數顯示合理，無 NaN/inf
+  - [ ] 變更篩選時榜單可同步更新
+
+- [ ] **Step 6：Phase 2 最終 Commit**
+
+  ```bash
+  git add dashboard.py tests/test_dashboard.py docs/superpowers/plans/2026-05-06-dashboard-interactivity.md
+  git commit -m "feat: implement dashboard Feature B/C/D/E with timeline search preview and transition scoring"
+  ```

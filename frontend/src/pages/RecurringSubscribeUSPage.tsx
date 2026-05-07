@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, HelpCircle, Info } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -7,7 +7,6 @@ const tradeDays = [5, 15, 25]
 const returnYears = ['1年', '2年', '3年']
 
 export function RecurringSubscribeUSPage() {
-  const { id } = useParams()
   const navigate = useNavigate()
   const [tab, setTab]         = useState(0)   // 0=定額 1=定股
   const [amount, setAmount]   = useState(10)

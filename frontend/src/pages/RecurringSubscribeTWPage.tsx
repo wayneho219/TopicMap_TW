@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Info, HelpCircle } from 'lucide-react'
 import { clsx } from 'clsx'
 
-const pricePcts = ['>0%', '≥5%', '≥10%', '≥15%']
 
 export function RecurringSubscribeTWPage() {
   const navigate = useNavigate()

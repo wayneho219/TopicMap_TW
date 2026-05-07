@@ -25,7 +25,7 @@ interface UseStockResult {
 
 export function useStock(id: string | undefined): UseStockResult {
   const [stock, setStock] = useState<StockDetail | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!!id)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -34,8 +34,11 @@ export function useStock(id: string | undefined): UseStockResult {
       setLoading(false)
       return
     }
+
+    let isMounted = true
     setLoading(true)
     setError(null)
+
     fetch(`/api/stocks/${id}`)
       .then((res) => {
         if (res.status === 404) throw new Error('找不到股票')
@@ -43,13 +46,22 @@ export function useStock(id: string | undefined): UseStockResult {
         return res.json()
       })
       .then((data: StockDetail) => {
-        setStock(data)
-        setLoading(false)
+        if (isMounted) {
+          setStock(data)
+          setLoading(false)
+        }
       })
-      .catch((err: Error) => {
-        setError(err.message)
-        setLoading(false)
+      .catch((err: unknown) => {
+        if (isMounted) {
+          const message = err instanceof Error ? err.message : '伺服器錯誤'
+          setError(message)
+          setLoading(false)
+        }
       })
+
+    return () => {
+      isMounted = false
+    }
   }, [id])
 
   return { stock, loading, error }

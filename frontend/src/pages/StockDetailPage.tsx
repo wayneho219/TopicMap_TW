@@ -58,6 +58,8 @@ export function StockDetailPage() {
     )
   }
 
+  const isUp = stock.change >= 0
+
   return (
     <div className="flex flex-col bg-[#111111] h-screen">
 
@@ -89,12 +91,12 @@ export function StockDetailPage() {
           </div>
 
           <div className="flex items-end gap-3 mb-2">
-            <span className="text-[#e84040] text-4xl font-bold tracking-tight">
+            <span className={`${isUp ? 'text-[#e84040]' : 'text-[#2dba6a]'} text-4xl font-bold tracking-tight`}>
               {stock.price.toFixed(2)}
             </span>
-            <div className="text-[#e84040] text-sm pb-1">
-              <div>▲ {stock.change.toFixed(2)}</div>
-              <div>▲ {stock.changePercent.toFixed(2)}%</div>
+            <div className={`${isUp ? 'text-[#e84040]' : 'text-[#2dba6a]'} text-sm pb-1`}>
+              <div>{isUp ? '▲' : '▼'} {Math.abs(stock.change).toFixed(2)}</div>
+              <div>{isUp ? '▲' : '▼'} {Math.abs(stock.changePercent).toFixed(2)}%</div>
             </div>
           </div>
 

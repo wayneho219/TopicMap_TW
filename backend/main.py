@@ -34,6 +34,14 @@ def _parse_float(val) -> float:
     except ValueError:
         return 0.0
 
+def _parse_volume(val) -> int:
+    if val is None:
+        return 0
+    try:
+        return int(float(str(val)))
+    except ValueError:
+        return 0
+
 @app.get('/api/stocks/{stock_id}')
 def get_stock(stock_id: str):
     conn = sqlite3.connect(DB_PATH)
@@ -54,7 +62,7 @@ def get_stock(stock_id: str):
         'price': float(row['close_price']) if row['close_price'] is not None else 0.0,
         'change': _parse_float(row['change_val']),
         'changePercent': _parse_float(row['change_pct']),
-        'volume': int(float(row['volume'])) if row['volume'] is not None else 0,
+        'volume': _parse_volume(row['volume']),
         'market': row['market'],
         'industry': row['industry_name'],
         'tags': _tags(row['market']),

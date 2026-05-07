@@ -1,123 +1,134 @@
-import pytest
 import pandas as pd
-import sqlite3
-from dashboard import load_articles, load_prices, compute_topic_heat, compute_topic_price
-
-SAMPLE_CSV = """stock_id,industry_name,ArticleCreateTime,label_medium,label_fine
-1101,水泥工業,2026-03-12,合併財務報告公告,季合併財報公告
-1101,水泥工業,2026-03-11,合併財務報告公告,季合併財報公告
-2330,半導體,2026-03-10,AI科技概念股,AI液冷記憶體個股
-"""
-
-
-def test_load_articles_columns(tmp_path):
-    f = tmp_path / "articles.csv"
-    f.write_text(SAMPLE_CSV)
-    df = load_articles(str(f))
-    assert set(["stock_id", "label_fine", "label_medium", "ArticleCreateTime"]).issubset(df.columns)
+import pytest
+from plotly.graph_objects import Figure
+from dashboard import (
+    filter_stock_table,
+    build_heat_figure,
+    build_scatter_figure,
+    compute_topic_timeline,
+    build_timeline_figure,
+)
 
 
-def test_load_articles_stock_id_is_str(tmp_path):
-    f = tmp_path / "articles.csv"
-    f.write_text(SAMPLE_CSV)
-    df = load_articles(str(f))
-    assert df["stock_id"].dtype == object  # string type for JOIN
-
-
-def test_load_articles_missing_file():
-    with pytest.raises(SystemExit):
-        load_articles("nonexistent.csv")
-
-
-def test_load_prices_columns(tmp_path):
-    db = tmp_path / "tw_stock_list.sqlite3"
-    conn = sqlite3.connect(str(db))
-    conn.execute("""
-        CREATE TABLE tw_stock_list (
-            stock_code TEXT, stock_name TEXT, change_pct TEXT, quote_date TEXT
-        )
-    """)
-    conn.execute("INSERT INTO tw_stock_list VALUES ('1101','台泥','+1.20%','2026-04-13')")
-    conn.execute("INSERT INTO tw_stock_list VALUES ('2330','台積電','-0.50%','2026-04-13')")
-    conn.commit(); conn.close()
-    df = load_prices(str(db))
-    assert set(["stock_code", "stock_name", "change_pct_float"]).issubset(df.columns)
-
-
-def test_load_prices_change_pct_is_float(tmp_path):
-    db = tmp_path / "tw_stock_list.sqlite3"
-    conn = sqlite3.connect(str(db))
-    conn.execute("CREATE TABLE tw_stock_list (stock_code TEXT, stock_name TEXT, change_pct TEXT, quote_date TEXT)")
-    conn.execute("INSERT INTO tw_stock_list VALUES ('1101','台泥','+1.20%','2026-04-13')")
-    conn.commit(); conn.close()
-    df = load_prices(str(db))
-    assert df["change_pct_float"].dtype == float
-    assert abs(df.iloc[0]["change_pct_float"] - 1.20) < 0.01
-
-
-def test_load_prices_missing_db():
-    with pytest.raises(SystemExit):
-        load_prices("nonexistent.sqlite3")
-
-
-def _sample_articles():
+def _heat():
     return pd.DataFrame({
-        "stock_id": ["1101", "1101", "2330", "2330", "2330"],
-        "label_fine": ["AI液冷", "AI液冷", "AI液冷", "航運指數", "航運指數"],
-        "label_medium": ["AI科技", "AI科技", "AI科技", "航運", "航運"],
-        "ArticleCreateTime": ["2026-03-10"] * 5,
+        "industry_name": ["電子零組件業", "半導體業", "生技醫療業"],
+        "article_count": [1145,       1083,        240],
     })
 
 
-def _sample_prices():
+def _stats():
     return pd.DataFrame({
-        "stock_code": ["1101", "2330"],
-        "stock_name": ["台泥", "台積電"],
-        "change_pct_float": [1.20, -0.50],
+        "industry_name":    ["電子零組件業", "半導體業", "生技醫療業"],
+        "article_count":    [24,          19,          45],
+        "avg_change_pct":   [1.20,        -0.50,        0.80],
+        "stock_count":      [8,            8,           12],
     })
 
 
-def test_compute_topic_heat_counts():
-    heat = compute_topic_heat(_sample_articles())
-    assert set(["label_fine", "label_medium", "article_count"]).issubset(heat.columns)
-    ai_row = heat[heat["label_fine"] == "AI液冷"].iloc[0]
-    assert ai_row["article_count"] == 3
-
-
-def test_compute_topic_heat_sorted():
-    heat = compute_topic_heat(_sample_articles())
-    assert heat.iloc[0]["article_count"] >= heat.iloc[1]["article_count"]
-
-
-def test_compute_topic_price_avg():
-    stats = compute_topic_price(_sample_articles(), _sample_prices())
-    assert set(["label_fine", "label_medium", "article_count", "avg_change_pct", "stock_count"]).issubset(stats.columns)
-    ai_row = stats[stats["label_fine"] == "AI液冷"].iloc[0]
-    # 1101(+1.20) and 2330(-0.50) both in AI液冷, per-stock avg = (1.20 + (-0.50)) / 2 = 0.35
-    assert abs(ai_row["avg_change_pct"] - 0.35) < 0.01
-
-
-def test_compute_topic_price_excludes_no_price():
-    articles = _sample_articles()
-    prices = pd.DataFrame({  # only 1101
-        "stock_code": ["1101"], "stock_name": ["台泥"], "change_pct_float": [1.20]
+def _stocks():
+    return pd.DataFrame({
+        "stock_id":        ["2313", "2308", "2330"],
+        "stock_name":      ["華通",  "台達電", "台積電"],
+        "industry_name":   ["電子零組件業", "電子零組件業", "半導體業"],
+        "article_count":   [24, 19, 45],
+        "change_pct_float": [-1.20, 2.35, 0.80],
     })
-    stats = compute_topic_price(articles, prices)
-    # 航運指數 only has 2330; 2330 has no price data → should be excluded
-    assert "航運指數" not in stats["label_fine"].values
 
 
-def test_compute_stock_stats_columns():
-    from dashboard import compute_stock_stats
-    stats = compute_stock_stats(_sample_articles(), _sample_prices())
-    assert set(["stock_id", "stock_name", "label_fine", "label_medium",
-                "article_count", "change_pct_float"]).issubset(stats.columns)
+def _articles_for_timeline():
+    return pd.DataFrame({
+        "industry_name": ["半導體業", "半導體業", "電子零組件業", "電子零組件業", "半導體業"],
+        "ArticleCreateTime": ["2026-05-04", "2026-05-10", "2026-05-06", "bad-date", "2026-05-12"],
+        "stock_id": ["2330", "2330", "2317", "2313", "2303"],
+    })
 
 
-def test_compute_stock_stats_primary_topic():
-    from dashboard import compute_stock_stats
-    # 1101 appears in AI液冷 (2 times), so primary topic should be AI液冷
-    stats = compute_stock_stats(_sample_articles(), _sample_prices())
-    row_1101 = stats[stats["stock_id"] == "1101"].iloc[0]
-    assert row_1101["label_fine"] == "AI液冷"
-    assert row_1101["article_count"] == 2
+# ── filter_stock_table ────────────────────────────────────────────────────────
+
+def test_filter_no_selection_returns_all():
+    records = filter_stock_table(_stocks(), None)
+    assert len(records) == 3
+
+def test_filter_with_selection_filters_rows():
+    records = filter_stock_table(_stocks(), "電子零組件業")
+    assert len(records) == 2
+    assert all(r["industry_name"] == "電子零組件業" for r in records)
+
+def test_filter_adds_change_pct_str():
+    records = filter_stock_table(_stocks(), None)
+    assert "change_pct_str" in records[0]
+    # 2330 台積電 +0.80%
+    twse = next(r for r in records if r["stock_id"] == "2330")
+    assert twse["change_pct_str"] == "+0.80%"
+    # 2313 華通 -1.20%
+    htc = next(r for r in records if r["stock_id"] == "2313")
+    assert htc["change_pct_str"] == "-1.20%"
+
+
+# ── build_heat_figure ─────────────────────────────────────────────────────────
+
+def test_heat_figure_returns_plotly_figure():
+    fig = build_heat_figure(_heat(), selected=None)
+    assert isinstance(fig, Figure)
+
+def test_heat_figure_no_selection_all_full_opacity():
+    fig = build_heat_figure(_heat(), selected=None)
+    colors = list(fig.data[0].marker.color)
+    # 所有 bar 應為完整不透明 rgba(0,112,60,1.0)
+    assert all("1.0" in c for c in colors)
+
+def test_heat_figure_selection_dims_others():
+    fig = build_heat_figure(_heat(), selected="電子零組件業")
+    colors = list(fig.data[0].marker.color)
+    label_order = list(_heat()["industry_name"])
+    sel_idx = label_order.index("電子零組件業")
+    # 選中列是 1.0，其他是 0.25
+    assert "1.0" in colors[sel_idx]
+    for i, c in enumerate(colors):
+        if i != sel_idx:
+            assert "0.25" in c
+
+
+# ── build_scatter_figure ──────────────────────────────────────────────────────
+
+def test_scatter_figure_returns_plotly_figure():
+    fig = build_scatter_figure(_stats(), selected=None)
+    assert isinstance(fig, Figure)
+
+def test_scatter_no_selection_one_trace():
+    fig = build_scatter_figure(_stats(), selected=None)
+    assert len(fig.data) == 1
+
+def test_scatter_with_selection_two_traces():
+    # 選中時應有兩條 trace：dimmed group + highlighted dot
+    fig = build_scatter_figure(_stats(), selected="電子零組件業")
+    assert len(fig.data) == 2
+
+
+# ── timeline ───────────────────────────────────────────────────────────────────
+
+def test_compute_topic_timeline_aggregates_by_week():
+    timeline = compute_topic_timeline(_articles_for_timeline())
+    assert set(timeline.columns) == {"industry_name", "week_start", "article_count"}
+    # bad-date 會被丟棄，剩 4 筆
+    assert int(timeline["article_count"].sum()) == 4
+    semi = timeline[timeline["industry_name"] == "半導體業"].sort_values("week_start")
+    assert len(semi) == 3
+
+
+def test_build_timeline_no_selection_uses_top_k():
+    timeline = compute_topic_timeline(_articles_for_timeline())
+    fig = build_timeline_figure(timeline, selected=None, top_k=1)
+    assert isinstance(fig, Figure)
+    assert len(fig.data) == 1
+
+
+def test_build_timeline_selection_highlights_selected():
+    timeline = compute_topic_timeline(_articles_for_timeline())
+    fig = build_timeline_figure(timeline, selected="半導體業")
+    assert len(fig.data) >= 2
+    target = next(trace for trace in fig.data if trace.name == "半導體業")
+    other = next(trace for trace in fig.data if trace.name != "半導體業")
+    assert target.opacity == 1.0
+    assert other.opacity == 0.18

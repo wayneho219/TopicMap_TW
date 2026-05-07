@@ -1,41 +1,63 @@
 # dashboard.py
 import sys
 import sqlite3
+import threading
 import webbrowser
-from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.io as pio
+from dash import Dash, html, dcc, Input, Output, State, ctx
+from dash import dash_table
+
+# 啟動時載入一次，Callback 直接引用
+_topic_heat:  Optional[pd.DataFrame] = None
+_topic_stats: Optional[pd.DataFrame] = None
+_stock_stats: Optional[pd.DataFrame] = None
+_topic_timeline: Optional[pd.DataFrame] = None
 
 BASE_DIR = Path(__file__).resolve().parent
-ARTICLES_PATH = BASE_DIR / "output" / "result_all.csv"
-DB_PATH = BASE_DIR / "data" / "tw_stock_list.sqlite3"
-OUTPUT_PATH = BASE_DIR / "output" / "dashboard.html"
-
-_C = dict(
-    navy_deep   = "#060E1F",
-    navy_dark   = "#0A1628",
-    navy_card   = "#0F2040",
-    navy_border = "#1E3A5F",
-    gold        = "#C9A84C",
-    gold_light  = "#E8C97A",
-    text_pri    = "#E8EDF5",
-    text_sec    = "#8A9BB5",
-    up          = "#2ECC71",
-    down        = "#E74C3C",
-)
+ARTICLES_PATH = BASE_DIR / "result_all.csv"
+DB_PATH       = BASE_DIR / "data" / "tw_stock_list.sqlite3"
+STOCKS_PATH   = BASE_DIR / "data" / "tw_stocks.csv"
 
 
 # ── Data loaders ─────────────────────────────────────────────────────────────
 
 def load_articles(path: Path = ARTICLES_PATH) -> pd.DataFrame:
     if not Path(path).exists():
-        print(f"[錯誤] 找不到 {path}，請先執行 Phase 2 產生 result_all.csv")
-        sys.exit(1)
+        fallback = BASE_DIR / "output" / "result_all.csv"
+        if fallback.exists():
+            path = fallback
+        else:
+            print(f"[錯誤] 找不到 {path}，請先執行 Phase 2 產生 result_all.csv")
+            sys.exit(1)
     df = pd.read_csv(path)
     df["stock_id"] = df["stock_id"].astype(str)
+
+    if Path(STOCKS_PATH).exists():
+        stocks = pd.read_csv(STOCKS_PATH, usecols=["stock_code", "industry_name"])
+        stocks["stock_code"] = stocks["stock_code"].astype(str)
+        df = df.merge(
+            stocks,
+            left_on="stock_id",
+            right_on="stock_code",
+            how="left",
+            suffixes=("", "_stocks"),
+        )
+        if "industry_name_stocks" in df.columns:
+            if "industry_name" in df.columns:
+                df["industry_name"] = df["industry_name"].fillna(df["industry_name_stocks"])
+                df = df.drop(columns=["industry_name_stocks"])
+            else:
+                df = df.rename(columns={"industry_name_stocks": "industry_name"})
+        df["industry_name"] = df["industry_name"].fillna("其他")
+        if "stock_code" in df.columns:
+            df = df.drop(columns=["stock_code"])
+    else:
+        df["industry_name"] = "未知"
+
     return df
 
 
@@ -64,7 +86,7 @@ def load_prices(db_path: Path = DB_PATH) -> pd.DataFrame:
 
 def compute_topic_heat(articles: pd.DataFrame) -> pd.DataFrame:
     return (
-        articles.groupby(["label_fine", "label_medium"])
+        articles.groupby("industry_name")
         .size()
         .reset_index(name="article_count")
         .sort_values("article_count", ascending=False)
@@ -76,20 +98,20 @@ def compute_topic_price(articles: pd.DataFrame, prices: pd.DataFrame) -> pd.Data
         prices[["stock_code", "change_pct_float"]],
         left_on="stock_id", right_on="stock_code", how="inner",
     )
-    deduped = merged.drop_duplicates(subset=["stock_id", "label_fine"])
+    deduped = merged.drop_duplicates(subset=["stock_id", "industry_name"])
     heat = compute_topic_heat(articles)
     stats = (
-        deduped.groupby(["label_fine", "label_medium"])
+        deduped.groupby("industry_name")
         .agg(avg_change_pct=("change_pct_float", "mean"),
              stock_count=("stock_id", "nunique"))
         .reset_index()
     )
-    return stats.merge(heat, on=["label_fine", "label_medium"], how="left")
+    return stats.merge(heat, on="industry_name", how="left")
 
 
 def compute_stock_stats(articles: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
     counts = (
-        articles.groupby(["stock_id", "label_fine", "label_medium"])
+        articles.groupby(["stock_id", "industry_name"])
         .size()
         .reset_index(name="article_count")
     )
@@ -102,445 +124,550 @@ def compute_stock_stats(articles: pd.DataFrame, prices: pd.DataFrame) -> pd.Data
     return result.sort_values("article_count", ascending=False)
 
 
-# ── Chart theme ───────────────────────────────────────────────────────────────
-
-def _cathay_layout(fig: go.Figure, height: int = 450) -> go.Figure:
-    fig.update_layout(
-        paper_bgcolor=_C["navy_card"],
-        plot_bgcolor=_C["navy_dark"],
-        height=height,
-        font=dict(
-            color=_C["text_pri"],
-            family="'Noto Sans TC','Microsoft JhengHei',Arial,sans-serif",
-            size=12,
-        ),
-        title=None,
-        margin=dict(l=16, r=16, t=14, b=14),
-        xaxis=dict(
-            gridcolor=_C["navy_border"],
-            zerolinecolor=_C["navy_border"],
-            tickfont=dict(color=_C["text_sec"], size=11),
-            title_font=dict(color=_C["text_sec"]),
-        ),
-        yaxis=dict(
-            gridcolor=_C["navy_border"],
-            zerolinecolor=_C["navy_border"],
-            tickfont=dict(color=_C["text_sec"], size=11),
-            title_font=dict(color=_C["text_sec"]),
-        ),
-        hoverlabel=dict(
-            bgcolor="#162340",
-            bordercolor=_C["gold"],
-            font=dict(color=_C["text_pri"]),
-        ),
+def compute_topic_timeline(articles: pd.DataFrame) -> pd.DataFrame:
+    timeline = articles.copy()
+    timeline["ArticleCreateTime"] = pd.to_datetime(
+        timeline["ArticleCreateTime"], errors="coerce"
     )
-    return fig
+    timeline = timeline.dropna(subset=["ArticleCreateTime"]).copy()
+    timeline["week_start"] = timeline["ArticleCreateTime"].dt.to_period("W-MON").dt.start_time
+    return (
+        timeline.groupby(["industry_name", "week_start"])
+        .size()
+        .reset_index(name="article_count")
+        .sort_values(["week_start", "article_count"], ascending=[True, False])
+    )
 
 
-# ── Chart builders ────────────────────────────────────────────────────────────
+# ── 國泰品牌色 ────────────────────────────────────────────────────────────────
+_GREEN       = "#00703C"
+_GREEN_LIGHT = "#E8F5EE"
+_GREEN_BRD   = "#E0EDE6"
+_BG          = "#FAFBFA"
+_CARD        = "#FFFFFF"
+_TXT         = "#1A1A1A"
+_TXT_SEC     = "#888888"
+_UP          = "#00703C"
+_DOWN        = "#D32F2F"
+_FONT        = "'Noto Sans TC','Microsoft JhengHei',sans-serif"
 
-def build_heat_chart(topic_heat: pd.DataFrame) -> go.Figure:
+
+def _rgba(hex_color: str, alpha: float) -> str:
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+def filter_stock_table(
+    stock_stats: pd.DataFrame,
+    selected_topic: Optional[str],
+) -> list[dict]:
+    if stock_stats is None:
+        return []
+    df = stock_stats.copy()
+    if selected_topic:
+        df = df[df["industry_name"] == selected_topic]
+    df["change_pct_str"] = df["change_pct_float"].apply(
+        lambda x: f"+{x:.2f}%" if x >= 0 else f"{x:.2f}%"
+    )
+    return df.to_dict("records")
+
+
+def build_heat_figure(
+    topic_heat: pd.DataFrame,
+    selected: Optional[str] = None,
+) -> go.Figure:
+    if topic_heat is None or topic_heat.empty:
+        return go.Figure()
+    labels = topic_heat["industry_name"].tolist()
     counts = topic_heat["article_count"].tolist()
+
+    colors = [
+        _rgba(_GREEN, 1.0) if (selected is None or l == selected)
+        else _rgba(_GREEN, 0.25)
+        for l in labels
+    ]
+
     fig = go.Figure(go.Bar(
         x=counts,
-        y=topic_heat["label_fine"],
+        y=labels,
         orientation="h",
-        marker=dict(
-            color=counts,
-            colorscale=[
-                [0.0, "#1E3A5F"],
-                [0.45, "#2E6BC4"],
-                [0.75, "#8060B0"],
-                [1.0,  _C["gold"]],
-            ],
-            showscale=False,
-            line=dict(width=0),
-        ),
+        marker=dict(color=colors, line=dict(width=0)),
         text=counts,
         textposition="outside",
-        textfont=dict(color=_C["gold"], size=11),
-        hovertemplate="<b>%{y}</b><br>篇數：%{x}<extra></extra>",
+        textfont=dict(color=_GREEN, size=11),
+        customdata=labels,
+        hovertemplate="<b>%{customdata}</b><br>篇數：%{x}<extra></extra>",
     ))
     h = max(380, len(topic_heat) * 30)
     fig.update_layout(
-        xaxis_title="文章篇數",
-        yaxis={"categoryorder": "total ascending"},
-        margin={"l": 230, "r": 80, "t": 14, "b": 30},
-    )
-    return _cathay_layout(fig, height=h)
-
-
-def build_scatter_chart(topic_stats: pd.DataFrame) -> go.Figure:
-    pct = topic_stats["avg_change_pct"].tolist()
-    fig = go.Figure(go.Scatter(
-        x=topic_stats["article_count"],
-        y=pct,
-        mode="markers+text",
-        text=topic_stats["label_fine"],
-        textposition="top center",
-        textfont=dict(color=_C["text_sec"], size=10),
-        marker=dict(
-            size=(topic_stats["stock_count"].clip(upper=50) + 8).tolist(),
-            color=pct,
-            colorscale=[[0, _C["down"]], [0.5, "#8A9BB5"], [1, _C["up"]]],
-            showscale=True,
-            colorbar=dict(
-                title=dict(text="均漲跌%", font=dict(color=_C["text_sec"], size=11)),
-                tickfont=dict(color=_C["text_sec"], size=10),
-                outlinecolor=_C["navy_border"],
-                bgcolor=_C["navy_card"],
-                thickness=12,
-            ),
-            line=dict(color=_C["gold"], width=0.8),
+        paper_bgcolor=_CARD,
+        plot_bgcolor=_CARD,
+        height=h,
+        font=dict(family=_FONT, color=_TXT, size=12),
+        margin=dict(l=230, r=80, t=14, b=30),
+        title=None,
+        xaxis=dict(
+            title="文章篇數",
+            gridcolor=_GREEN_BRD,
+            zerolinecolor=_GREEN_BRD,
+            tickfont=dict(color=_TXT_SEC, size=11),
         ),
-        hovertemplate=(
-            "<b>%{text}</b><br>熱度：%{x} 篇<br>均漲跌：%{y:.2f}%<extra></extra>"
+        yaxis=dict(
+            categoryorder="total ascending",
+            tickfont=dict(color=_TXT, size=11),
         ),
-    ))
-    fig.add_hline(y=0, line_dash="dash", line_color=_C["text_sec"],
-                  opacity=0.4, line_width=1)
-    fig.update_layout(
-        xaxis_title="文章篇數（熱度）",
-        yaxis_title="主題均漲跌幅 (%)",
-    )
-    return _cathay_layout(fig, height=480)
-
-
-def build_table_chart(stock_stats: pd.DataFrame) -> go.Figure:
-    pct_vals = stock_stats["change_pct_float"].tolist()
-    pct_display = stock_stats["change_pct_float"].apply(
-        lambda x: f"+{x:.2f}%" if x >= 0 else f"{x:.2f}%"
-    )
-    pct_font_colors = [
-        _C["up"] if v > 0 else _C["down"] if v < 0 else _C["text_sec"]
-        for v in pct_vals
-    ]
-    pct_bg = [
-        "rgba(46,204,113,0.18)" if v > 0
-        else "rgba(231,76,60,0.18)" if v < 0
-        else _C["navy_dark"]
-        for v in pct_vals
-    ]
-    row_bg = [
-        _C["navy_dark"] if i % 2 == 0 else "#0D1E38"
-        for i in range(len(stock_stats))
-    ]
-
-    fig = go.Figure(go.Table(
-        columnwidth=[70, 90, 180, 150, 70, 80],
-        header=dict(
-            values=["代碼", "名稱", "細層主題", "中層主題", "文章數", "漲跌幅"],
-            fill_color=_C["gold"],
-            font=dict(color=_C["navy_deep"], size=12,
-                      family="'Noto Sans TC',Arial,sans-serif"),
-            align="center",
-            height=38,
-        ),
-        cells=dict(
-            values=[
-                stock_stats["stock_id"].tolist(),
-                stock_stats["stock_name"].tolist(),
-                stock_stats["label_fine"].tolist(),
-                stock_stats["label_medium"].tolist(),
-                stock_stats["article_count"].tolist(),
-                pct_display.tolist(),
-            ],
-            fill_color=[row_bg, row_bg, row_bg, row_bg, row_bg, pct_bg],
-            font=dict(
-                color=[_C["text_pri"]] * 5 + [pct_font_colors],
-                size=12,
-                family="'Noto Sans TC',Arial,sans-serif",
-            ),
-            align=["center", "left", "left", "left", "center", "center"],
-            height=34,
-        ),
-    ))
-    fig.update_layout(
-        paper_bgcolor=_C["navy_card"],
-        margin=dict(l=8, r=8, t=8, b=8),
-        height=560,
+        hoverlabel=dict(bgcolor=_GREEN_LIGHT, bordercolor=_GREEN,
+                        font=dict(color=_TXT)),
     )
     return fig
 
 
-# ── HTML template ─────────────────────────────────────────────────────────────
+def build_scatter_figure(
+    topic_stats: pd.DataFrame,
+    selected: Optional[str] = None,
+) -> go.Figure:
+    if topic_stats is None or topic_stats.empty:
+        return go.Figure()
+    fig = go.Figure()
 
-def build_dashboard(
-    heat_fig: go.Figure,
-    scatter_fig: go.Figure,
-    table_fig: go.Figure,
-    *,
-    topic_count: int,
-    stock_count: int,
-    article_count: int,
-    avg_change: float,
-) -> str:
-    today = datetime.now().strftime("%Y/%m/%d %H:%M")
-    avg_str = f"+{avg_change:.2f}%" if avg_change >= 0 else f"{avg_change:.2f}%"
-    avg_cls = "up" if avg_change > 0 else ("down" if avg_change < 0 else "")
+    if selected is None:
+        pct = topic_stats["avg_change_pct"].tolist()
+        colors = [_UP if v >= 0 else _DOWN for v in pct]
+        fig.add_trace(go.Scatter(
+            x=topic_stats["article_count"],
+            y=pct,
+            mode="markers+text",
+            text=topic_stats["industry_name"],
+            textposition="top center",
+            textfont=dict(color=_TXT_SEC, size=10, family=_FONT),
+            customdata=topic_stats["industry_name"],
+            marker=dict(
+                color=colors,
+                size=(topic_stats["stock_count"].clip(upper=50) + 8).tolist(),
+                line=dict(color=_GREEN_BRD, width=1),
+            ),
+            hovertemplate=(
+                "<b>%{customdata}</b><br>"
+                "熱度：%{x} 篇<br>均漲跌：%{y:.2f}%<extra></extra>"
+            ),
+            showlegend=False,
+        ))
+    else:
+        others = topic_stats[topic_stats["industry_name"] != selected]
+        sel    = topic_stats[topic_stats["industry_name"] == selected]
 
-    cfg = {"displayModeBar": False, "responsive": True}
-    heat_html    = pio.to_html(heat_fig,    include_plotlyjs="cdn",  full_html=False, config=cfg)
-    scatter_html = pio.to_html(scatter_fig, include_plotlyjs=False,  full_html=False, config=cfg)
-    table_html   = pio.to_html(table_fig,   include_plotlyjs=False,  full_html=False, config=cfg)
+        if len(others):
+            fig.add_trace(go.Scatter(
+                x=others["article_count"],
+                y=others["avg_change_pct"],
+                mode="markers",
+                customdata=others["industry_name"],
+                marker=dict(color="rgba(180,180,180,0.25)", size=8),
+                hovertemplate="<b>%{customdata}</b><extra></extra>",
+                showlegend=False,
+            ))
 
-    return f"""<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>國泰證券 ─ 概念股監控儀表板</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;900&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
-<style>
-:root {{
-  --navy-deep:  {_C['navy_deep']};
-  --navy-dark:  {_C['navy_dark']};
-  --navy-card:  {_C['navy_card']};
-  --navy-bd:    {_C['navy_border']};
-  --gold:       {_C['gold']};
-  --gold-light: {_C['gold_light']};
-  --txt:        {_C['text_pri']};
-  --txt-sec:    {_C['text_sec']};
-  --up:         {_C['up']};
-  --down:       {_C['down']};
-}}
-*,*::before,*::after {{ box-sizing:border-box; margin:0; padding:0; }}
-html {{ scroll-behavior:smooth; }}
+        if len(sel):
+            pct_val = float(sel["avg_change_pct"].iloc[0])
+            dot_color = _UP if pct_val >= 0 else _DOWN
+            fig.add_trace(go.Scatter(
+                x=sel["article_count"],
+                y=sel["avg_change_pct"],
+                mode="markers+text",
+                text=sel["industry_name"],
+                textposition="top center",
+                textfont=dict(color=_TXT, size=11, family=_FONT),
+                customdata=sel["industry_name"],
+                marker=dict(
+                    color=dot_color,
+                    size=22,
+                    line=dict(color="#fff", width=2.5),
+                ),
+                hovertemplate=(
+                    "<b>%{customdata}</b><br>"
+                    "熱度：%{x} 篇<br>均漲跌：%{y:.2f}%<extra></extra>"
+                ),
+                showlegend=False,
+            ))
 
-body {{
-  font-family:'Noto Sans TC','Microsoft JhengHei',Arial,sans-serif;
-  background:var(--navy-deep);
-  color:var(--txt);
-  min-height:100vh;
-}}
-body::before {{
-  content:'';
-  position:fixed; inset:0;
-  background-image:
-    linear-gradient(rgba(30,58,95,.10) 1px,transparent 1px),
-    linear-gradient(90deg,rgba(30,58,95,.10) 1px,transparent 1px);
-  background-size:52px 52px;
-  pointer-events:none; z-index:0;
-}}
+    fig.add_hline(y=0, line_dash="dash", line_color=_TXT_SEC,
+                  opacity=0.4, line_width=1)
+    fig.update_layout(
+        paper_bgcolor=_CARD,
+        plot_bgcolor=_CARD,
+        height=480,
+        font=dict(family=_FONT, color=_TXT, size=12),
+        margin=dict(l=16, r=16, t=14, b=14),
+        title=None,
+        xaxis=dict(title="文章篇數（熱度）", gridcolor=_GREEN_BRD,
+                   zerolinecolor=_GREEN_BRD, tickfont=dict(color=_TXT_SEC)),
+        yaxis=dict(title="產業均漲跌幅 (%)", gridcolor=_GREEN_BRD,
+                   zerolinecolor=_GREEN_BRD, tickfont=dict(color=_TXT_SEC)),
+        hoverlabel=dict(bgcolor=_GREEN_LIGHT, bordercolor=_GREEN,
+                        font=dict(color=_TXT)),
+    )
+    return fig
 
-/* ── Nav ─────────────────────── */
-.nav {{
-  position:sticky; top:0; z-index:100;
-  background:rgba(6,14,31,.97);
-  backdrop-filter:blur(16px);
-  border-bottom:1px solid var(--gold);
-  padding:0 36px; height:60px;
-  display:flex; align-items:center; justify-content:space-between;
-}}
-.nav-left {{ display:flex; align-items:center; gap:14px; }}
-.nav-emblem {{
-  width:38px; height:38px; flex-shrink:0;
-  background:var(--gold);
-  clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);
-  display:flex; align-items:center; justify-content:center;
-  font-family:'Noto Serif TC',serif;
-  font-weight:900; font-size:16px;
-  color:var(--navy-deep);
-}}
-.nav-brand {{ font-family:'Noto Serif TC',serif; font-size:17px; font-weight:600; color:var(--gold); letter-spacing:.06em; }}
-.nav-en    {{ font-size:10px; color:rgba(201,168,76,.45); letter-spacing:.18em; font-weight:300; }}
-.nav-sep   {{ width:1px; height:28px; background:var(--navy-bd); }}
-.nav-mod   {{ font-size:13px; color:var(--txt-sec); letter-spacing:.06em; }}
-.live-wrap {{ display:flex; align-items:center; gap:7px; font-size:12px; color:var(--txt-sec); }}
-.live-dot  {{
-  width:7px; height:7px; border-radius:50%;
-  background:var(--up);
-  animation:blink 2.4s ease-in-out infinite;
-}}
-@keyframes blink {{
-  0%,100% {{ opacity:1; box-shadow:0 0 5px var(--up); }}
-  50%     {{ opacity:.3; box-shadow:none; }}
-}}
 
-/* ── Main ────────────────────── */
-.main {{
-  position:relative; z-index:1;
-  padding:28px 36px 44px;
-  max-width:1680px; margin:0 auto;
-}}
+def build_timeline_figure(
+    timeline_df: pd.DataFrame,
+    selected: Optional[str] = None,
+    top_k: int = 6,
+) -> go.Figure:
+    if timeline_df is None or timeline_df.empty:
+        return go.Figure()
 
-/* ── Page header ─────────────── */
-.ph {{
-  margin-bottom:26px;
-  display:flex; align-items:flex-end; justify-content:space-between;
-}}
-.ph-title {{
-  font-family:'Noto Serif TC',serif;
-  font-size:26px; font-weight:600;
-  color:var(--txt); letter-spacing:.03em;
-}}
-.ph-title em {{ font-style:normal; color:var(--gold); }}
-.ph-desc {{ font-size:11px; color:var(--txt-sec); letter-spacing:.12em; padding-bottom:2px; }}
+    source = timeline_df.copy()
+    totals = (
+        source.groupby("industry_name")["article_count"]
+        .sum()
+        .sort_values(ascending=False)
+    )
+    if selected is None:
+        industries = totals.head(top_k).index.tolist()
+    else:
+        industries = totals.index.tolist()
 
-/* ── KPI row ─────────────────── */
-.kpi-row {{
-  display:grid; grid-template-columns:repeat(4,1fr);
-  gap:14px; margin-bottom:18px;
-}}
-.kpi {{
-  background:var(--navy-card);
-  border:1px solid var(--navy-bd);
-  border-radius:6px; padding:18px 22px;
-  position:relative; overflow:hidden;
-  transition:border-color .2s, transform .2s;
-}}
-.kpi::after {{
-  content:'';
-  position:absolute; top:0; left:0; right:0; height:2px;
-  background:linear-gradient(90deg,var(--gold) 0%,transparent 65%);
-}}
-.kpi:hover {{ border-color:rgba(201,168,76,.5); transform:translateY(-2px); }}
-.kpi-lbl  {{ font-size:10px; color:var(--txt-sec); letter-spacing:.14em; text-transform:uppercase; margin-bottom:10px; }}
-.kpi-val  {{
-  font-family:'Noto Serif TC',serif;
-  font-size:34px; font-weight:600; line-height:1;
-  color:var(--gold); margin-bottom:5px;
-  font-variant-numeric:tabular-nums;
-}}
-.kpi-val.up   {{ color:var(--up);   }}
-.kpi-val.down {{ color:var(--down); }}
-.kpi-sub  {{ font-size:11px; color:rgba(138,155,181,.55); }}
+    source = source[source["industry_name"].isin(industries)].copy()
 
-/* ── Charts ──────────────────── */
-.charts-top {{
-  display:grid; grid-template-columns:1fr 1fr;
-  gap:16px; margin-bottom:16px;
-}}
-.cc {{
-  background:var(--navy-card);
-  border:1px solid var(--navy-bd);
-  border-radius:6px; overflow:hidden;
-}}
-.cc.full {{ grid-column:1/-1; }}
-.cc-head {{
-  padding:13px 18px;
-  border-bottom:1px solid var(--navy-bd);
-  display:flex; align-items:center; gap:9px;
-}}
-.cc-bar  {{ width:3px; height:14px; background:var(--gold); border-radius:2px; }}
-.cc-ttl  {{
-  font-family:'Noto Serif TC',serif;
-  font-size:13px; font-weight:600;
-  color:var(--gold); letter-spacing:.06em;
-}}
-.cc-body {{ padding:2px; }}
+    fig = go.Figure()
+    for industry in industries:
+        ind_df = source[source["industry_name"] == industry].sort_values("week_start")
+        if ind_df.empty:
+            continue
 
-/* ── Footer ──────────────────── */
-.footer {{
-  margin-top:26px; padding-top:16px;
-  border-top:1px solid var(--navy-bd);
-  display:flex; justify-content:space-between; align-items:center;
-  font-size:10px; color:rgba(74,96,128,.65); letter-spacing:.1em;
-}}
-.footer-brand {{ color:rgba(201,168,76,.4); font-weight:500; }}
-</style>
-</head>
-<body>
+        if selected is None:
+            opacity = 0.95
+            width = 2
+            color = _GREEN
+        else:
+            is_selected = industry == selected
+            opacity = 1.0 if is_selected else 0.18
+            width = 3 if is_selected else 1.5
+            color = _GREEN if is_selected else _TXT_SEC
 
-<nav class="nav">
-  <div class="nav-left">
-    <div class="nav-emblem">國</div>
-    <div>
-      <div class="nav-brand">國泰證券</div>
-      <div class="nav-en">CATHAY SECURITIES CORP.</div>
-    </div>
-    <div class="nav-sep"></div>
-    <div class="nav-mod">概念股監控系統</div>
-  </div>
-  <div class="live-wrap">
-    <span class="live-dot"></span>資料更新 · {today}
-  </div>
-</nav>
+        fig.add_trace(go.Scatter(
+            x=ind_df["week_start"],
+            y=ind_df["article_count"],
+            mode="lines+markers",
+            name=industry,
+            customdata=[industry] * len(ind_df),
+            line=dict(color=color, width=width),
+            marker=dict(size=6),
+            opacity=opacity,
+            hovertemplate=(
+                "<b>%{customdata}</b><br>"
+                "週起始：%{x|%Y-%m-%d}<br>"
+                "篇數：%{y}<extra></extra>"
+            ),
+            showlegend=True,
+        ))
 
-<div class="main">
+    fig.update_layout(
+        paper_bgcolor=_CARD,
+        plot_bgcolor=_CARD,
+        height=360,
+        font=dict(family=_FONT, color=_TXT, size=12),
+        margin=dict(l=16, r=16, t=10, b=16),
+        title=None,
+        xaxis=dict(
+            title="週起始日期",
+            gridcolor=_GREEN_BRD,
+            zerolinecolor=_GREEN_BRD,
+            tickfont=dict(color=_TXT_SEC),
+        ),
+        yaxis=dict(
+            title="文章篇數",
+            gridcolor=_GREEN_BRD,
+            zerolinecolor=_GREEN_BRD,
+            tickfont=dict(color=_TXT_SEC),
+        ),
+        hoverlabel=dict(bgcolor=_GREEN_LIGHT, bordercolor=_GREEN, font=dict(color=_TXT)),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0,
+            font=dict(size=10, color=_TXT_SEC),
+        ),
+    )
+    return fig
 
-  <div class="ph">
-    <h1 class="ph-title">概念股<em>監控儀表板</em></h1>
-    <p class="ph-desc">THEMATIC STOCK INTELLIGENCE · AI-POWERED EVENT CORRELATION</p>
-  </div>
 
-  <div class="kpi-row">
-    <div class="kpi">
-      <div class="kpi-lbl">NLP 監控主題</div>
-      <div class="kpi-val">{topic_count}</div>
-      <div class="kpi-sub">細層分群主題數</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-lbl">追蹤個股</div>
-      <div class="kpi-val">{stock_count}</div>
-      <div class="kpi-sub">有效配對股票</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-lbl">分析文章</div>
-      <div class="kpi-val">{article_count}</div>
-      <div class="kpi-sub">語料庫總篇數</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-lbl">市場均漲跌</div>
-      <div class="kpi-val {avg_cls}">{avg_str}</div>
-      <div class="kpi-sub">追蹤個股均值</div>
-    </div>
-  </div>
+def _load_data() -> None:
+    global _topic_heat, _topic_stats, _stock_stats, _topic_timeline
+    articles     = load_articles()
+    prices       = load_prices()
+    _topic_heat  = compute_topic_heat(articles)
+    _topic_stats = compute_topic_price(articles, prices)
+    _stock_stats = compute_stock_stats(articles, prices)
+    _topic_timeline = compute_topic_timeline(articles)
 
-  <div class="charts-top">
-    <div class="cc">
-      <div class="cc-head"><div class="cc-bar"></div><div class="cc-ttl">主題熱度排行</div></div>
-      <div class="cc-body">{heat_html}</div>
-    </div>
-    <div class="cc">
-      <div class="cc-head"><div class="cc-bar"></div><div class="cc-ttl">熱度 × 漲跌幅分析</div></div>
-      <div class="cc-body">{scatter_html}</div>
-    </div>
-  </div>
 
-  <div class="cc full">
-    <div class="cc-head"><div class="cc-bar"></div><div class="cc-ttl">個股主題明細</div></div>
-    <div class="cc-body">{table_html}</div>
-  </div>
+def _kpi_card(label: str, value: str, sub: str,
+              accent: str = _GREEN) -> html.Div:
+    return html.Div([
+        html.Div(label, style={"fontSize": "10px", "color": _TXT_SEC,
+                               "textTransform": "uppercase",
+                               "letterSpacing": "0.12em", "marginBottom": "10px"}),
+        html.Div(value, style={"fontSize": "28px", "fontWeight": "700",
+                               "color": accent, "lineHeight": "1",
+                               "marginBottom": "5px",
+                               "fontVariantNumeric": "tabular-nums"}),
+        html.Div(sub,   style={"fontSize": "11px", "color": "rgba(136,136,136,.6)"}),
+    ], style={
+        "background":   _CARD,
+        "border":       f"1px solid {_GREEN_BRD}",
+        "borderLeft":   f"3px solid {accent}",
+        "borderRadius": "4px",
+        "padding":      "16px 20px",
+        "transition":   "transform .15s",
+    })
 
-  <div class="footer">
-    <span class="footer-brand">CATHAY SECURITIES CORP.</span>
-    <span>概念股監控系統 · EventCorr AI Pipeline · 僅供內部研究參考，不構成投資建議</span>
-    <span>{today}</span>
-  </div>
 
-</div>
-</body>
-</html>"""
+def _chart_card(title: str, *children) -> html.Div:
+    return html.Div([
+        html.Div([
+            html.Div(style={"width": "3px", "height": "14px",
+                            "background": _GREEN, "borderRadius": "2px"}),
+            html.Span(title, style={"fontWeight": "600", "color": _TXT,
+                                    "fontSize": "13px", "letterSpacing": "0.05em"}),
+        ], style={"display": "flex", "alignItems": "center", "gap": "8px",
+                  "padding": "12px 16px",
+                  "borderBottom": f"1px solid {_GREEN_BRD}"}),
+        html.Div(list(children), style={"padding": "2px"}),
+    ], style={
+        "background":   _CARD,
+        "border":       f"1px solid {_GREEN_BRD}",
+        "borderRadius": "4px",
+        "overflow":     "hidden",
+    })
+
+
+def _build_layout() -> html.Div:
+    th = _topic_heat
+    ss = _stock_stats
+
+    avg = float(ss["change_pct_float"].mean()) if ss is not None and len(ss) else 0.0
+    avg_str   = f"+{avg:.2f}%" if avg >= 0 else f"{avg:.2f}%"
+    avg_color = _UP if avg >= 0 else _DOWN
+
+    n_topics  = int(th["industry_name"].nunique()) if th is not None else 0
+    n_stocks  = int(ss["stock_id"].nunique())   if ss is not None else 0
+    n_articles= int(th["article_count"].sum())  if th is not None else 0
+
+    NAV_STYLE = {
+        "background": _CARD,
+        "borderBottom": f"3px solid {_GREEN}",
+        "padding": "0 32px",
+        "height": "60px",
+        "display": "flex",
+        "alignItems": "center",
+        "justifyContent": "space-between",
+        "position": "sticky",
+        "top": "0",
+        "zIndex": "100",
+    }
+
+    return html.Div([
+        dcc.Store(id="selected-topic", data=None),
+
+        # ── Nav ────────────────────────────────────────────────────────────
+        html.Div([
+            html.Div([
+                html.Div(style={"width": "4px", "height": "22px",
+                                "background": _GREEN, "borderRadius": "2px"}),
+                html.Span("國泰證券", style={"color": _GREEN, "fontWeight": "700",
+                                            "fontSize": "17px", "letterSpacing": "0.06em"}),
+                html.Span("｜ 概念股監控系統",
+                          style={"color": _TXT_SEC, "fontSize": "12px", "marginLeft": "10px"}),
+            ], style={"display": "flex", "alignItems": "center", "gap": "12px"}),
+            html.Div([
+                html.Span("● 即時",
+                          style={"background": _GREEN, "color": "#fff",
+                                 "fontSize": "10px", "padding": "3px 10px",
+                                 "borderRadius": "12px"}),
+            ]),
+        ], style=NAV_STYLE),
+
+        # ── Main ───────────────────────────────────────────────────────────
+        html.Div([
+
+            # KPI row
+            html.Div([
+                _kpi_card("追蹤產業", str(n_topics), "產業分類數"),
+                _kpi_card("追蹤個股",      str(n_stocks),  "有效配對股票"),
+                _kpi_card("分析文章",       str(n_articles),"語料庫總篇數"),
+                _kpi_card("市場均漲跌",     avg_str,        "追蹤個股均值", avg_color),
+                html.Div([
+                    html.Div("已篩選產業", style={"fontSize": "10px", "color": _TXT_SEC,
+                                                  "textTransform": "uppercase",
+                                                  "letterSpacing": "0.12em",
+                                                  "marginBottom": "10px"}),
+                    html.Div(id="filter-badge",
+                             style={"fontSize": "13px", "fontWeight": "600",
+                                    "color": _GREEN, "lineHeight": "1.3"}),
+                ], style={
+                    "background": _CARD,
+                    "border":     f"1px solid {_GREEN_BRD}",
+                    "borderLeft": f"3px solid {_GREEN}",
+                    "borderRadius": "4px",
+                    "padding": "16px 20px",
+                }),
+            ], style={"display": "grid",
+                      "gridTemplateColumns": "repeat(5,1fr)",
+                      "gap": "12px", "marginBottom": "16px"}),
+
+            # Charts top row
+            html.Div([
+                _chart_card("產業熱度排行",
+                            dcc.Graph(id="heat-chart",
+                                      figure=build_heat_figure(th),
+                                      config={"displayModeBar": False},
+                                      style={"height": "100%"})),
+                _chart_card("熱度 × 漲跌幅分析",
+                            dcc.Graph(id="scatter-chart",
+                                      figure=build_scatter_figure(_topic_stats),
+                                      config={"displayModeBar": False})),
+            ], style={"display": "grid", "gridTemplateColumns": "1fr 1fr",
+                      "gap": "14px", "marginBottom": "14px"}),
+
+            _chart_card("產業熱度時間軸（週）",
+                        dcc.Graph(id="timeline-chart",
+                                  figure=build_timeline_figure(_topic_timeline),
+                                  config={"displayModeBar": False})),
+
+            # Table
+            _chart_card("個股產業明細",
+                dash_table.DataTable(
+                    id="stock-table",
+                    columns=[
+                        {"name": "代碼",   "id": "stock_id"},
+                        {"name": "名稱",   "id": "stock_name"},
+                        {"name": "產業",   "id": "industry_name"},
+                        {"name": "文章數", "id": "article_count"},
+                        {"name": "漲跌幅", "id": "change_pct_str"},
+                        {"name": "",       "id": "change_pct_float"},
+                    ],
+                    hidden_columns=["change_pct_float"],
+                    data=filter_stock_table(ss, None),
+                    page_size=25,
+                    sort_action="native",
+                    style_table={"overflowX": "auto"},
+                    style_header={
+                        "backgroundColor": _GREEN,
+                        "color": "#fff",
+                        "fontWeight": "600",
+                        "fontSize": "12px",
+                        "fontFamily": _FONT,
+                        "border": f"1px solid {_GREEN_BRD}",
+                        "padding": "10px 12px",
+                    },
+                    style_cell={
+                        "fontFamily": _FONT,
+                        "fontSize": "12px",
+                        "padding": "8px 12px",
+                        "border": f"1px solid {_GREEN_BRD}",
+                        "backgroundColor": _CARD,
+                        "color": _TXT,
+                    },
+                    style_data_conditional=[
+                        {"if": {"row_index": "odd"},
+                         "backgroundColor": _BG},
+                        {"if": {"filter_query": "{change_pct_float} > 0",
+                                "column_id": "change_pct_str"},
+                         "color": _UP, "fontWeight": "600"},
+                        {"if": {"filter_query": "{change_pct_float} < 0",
+                                "column_id": "change_pct_str"},
+                         "color": _DOWN, "fontWeight": "600"},
+                    ],
+                ),
+            ),
+
+            # Footer
+            html.Div(
+                "CATHAY SECURITIES CORP. · 概念股監控系統 · EventCorr AI Pipeline · 僅供內部研究參考，不構成投資建議",
+                style={"textAlign": "center", "fontSize": "10px",
+                       "color": "rgba(136,136,136,.5)",
+                       "letterSpacing": "0.1em",
+                       "marginTop": "20px",
+                       "paddingTop": "16px",
+                       "borderTop": f"1px solid {_GREEN_BRD}"},
+            ),
+
+        ], style={"padding": "24px 32px 36px", "maxWidth": "1680px", "margin": "0 auto"}),
+
+    ], style={"fontFamily": _FONT, "background": _BG, "minHeight": "100vh"})
+
+
+# ── Dash app ──────────────────────────────────────────────────────────────────
+
+app = Dash(__name__, title="國泰證券 · 概念股監控")
+
+
+# ── Callbacks ─────────────────────────────────────────────────────────────────
+
+@app.callback(
+    Output("selected-topic", "data"),
+    Input("heat-chart",    "clickData"),
+    Input("scatter-chart", "clickData"),
+    State("selected-topic", "data"),
+    prevent_initial_call=True,
+)
+def update_selected_topic(heat_click, scatter_click, current):
+    triggered = ctx.triggered_id
+
+    if triggered == "heat-chart" and heat_click:
+        clicked = heat_click["points"][0]["customdata"]
+        return None if clicked == current else clicked
+
+    if triggered == "scatter-chart" and scatter_click:
+        clicked = scatter_click["points"][0]["customdata"]
+        return None if clicked == current else clicked
+
+    return current
+
+
+@app.callback(
+    Output("heat-chart",    "figure"),
+    Output("scatter-chart", "figure"),
+    Output("timeline-chart", "figure"),
+    Output("stock-table",   "data"),
+    Output("filter-badge",  "children"),
+    Input("selected-topic", "data"),
+)
+def sync_charts(selected_topic):
+    heat_fig    = build_heat_figure(_topic_heat, selected_topic)
+    scatter_fig = build_scatter_figure(_topic_stats, selected_topic)
+    timeline_fig = build_timeline_figure(_topic_timeline, selected_topic)
+    table_data  = filter_stock_table(_stock_stats, selected_topic)
+
+    badge = f"{selected_topic}  ×" if selected_topic else "（未篩選）"
+
+    return heat_fig, scatter_fig, timeline_fig, table_data, badge
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-def main():
-    articles = load_articles()
-    prices   = load_prices()
+def main() -> None:
+    _load_data()
+    app.layout = _build_layout   # 資料已載入後再指定 layout
 
-    topic_heat  = compute_topic_heat(articles)
-    topic_stats = compute_topic_price(articles, prices)
-    stock_stats = compute_stock_stats(articles, prices)
+    def _open():
+        import socket, time
+        for _ in range(30):
+            try:
+                socket.create_connection(("127.0.0.1", 8050), timeout=0.3).close()
+                break
+            except OSError:
+                time.sleep(0.2)
+        webbrowser.open("http://127.0.0.1:8050")
 
-    heat_fig    = build_heat_chart(topic_heat)
-    scatter_fig = build_scatter_chart(topic_stats)
-    table_fig   = build_table_chart(stock_stats)
-
-    avg_change = float(stock_stats["change_pct_float"].mean()) if len(stock_stats) else 0.0
-
-    html = build_dashboard(
-        heat_fig, scatter_fig, table_fig,
-        topic_count   = int(topic_heat["label_fine"].nunique()),
-        stock_count   = int(stock_stats["stock_id"].nunique()),
-        article_count = int(len(articles)),
-        avg_change    = avg_change,
-    )
-    Path(OUTPUT_PATH).write_text(html, encoding="utf-8")
-    print(f"[完成] 輸出：{OUTPUT_PATH}")
-    webbrowser.open(f"file://{Path(OUTPUT_PATH).resolve()}")
+    threading.Thread(target=_open, daemon=True).start()
+    print("[啟動] http://127.0.0.1:8050  （Ctrl-C 停止）")
+    app.run(debug=False, host="127.0.0.1", port=8050)
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ PHASE = "label"    → 讀取 topic_labels.json，套用標籤並輸出視覺化
 # │    "cluster" ── 分群 + 輸出命名素材      │
 # │    "label"   ── 套用標籤 + 輸出結果      │
 # └─────────────────────────────────────────┘
-PHASE = "cluster"
+PHASE = "label"
 
 # AUTO_LEVELS = True  → 自動偵測各層最佳群數（CH 分數偏好少群，通常不建議）
 # AUTO_LEVELS = False → 使用下方 LEVELS 手動指定（建議）

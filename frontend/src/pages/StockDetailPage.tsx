@@ -8,7 +8,8 @@ import {
   ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid,
   ResponsiveContainer, ReferenceLine,
 } from 'recharts'
-import { mockStockDetail, mockChartData } from '../data/mock'
+import { mockChartData } from '../data/mock'
+import { useStock } from '../hooks/useStock'
 
 const chartTabs = ['K線', '五檔', '價量', '明細', '券商分點', '指標', '籌碼']
 const timeTabs = ['分時', '日', '週', '月']
@@ -38,7 +39,26 @@ export function StockDetailPage() {
   const [chartTab, setChartTab] = useState(0)
   const [timeTab, setTimeTab] = useState(0)
   const [brokerTopTab, setBrokerTopTab] = useState(0)
-  const stock = mockStockDetail
+  const { stock, loading, error } = useStock(id)
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-[#111111]">
+        <div className="w-8 h-8 rounded-full border-2 border-[#2dba6a] border-t-transparent animate-spin" />
+      </div>
+    )
+  }
+
+  if (error || !stock) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-[#111111] gap-3">
+        <span className="text-[#888] text-sm">{error ?? '找不到股票'}</span>
+        <button onClick={() => navigate(-1)} className="text-[#2dba6a] text-sm">返回</button>
+      </div>
+    )
+  }
+
+  const isUp = stock.change >= 0
 
   return (
     <div className="flex flex-col bg-[#111111] h-screen">
@@ -71,12 +91,12 @@ export function StockDetailPage() {
           </div>
 
           <div className="flex items-end gap-3 mb-2">
-            <span className="text-[#e84040] text-4xl font-bold tracking-tight">
+            <span className={`${isUp ? 'text-[#e84040]' : 'text-[#2dba6a]'} text-4xl font-bold tracking-tight`}>
               {stock.price.toFixed(2)}
             </span>
-            <div className="text-[#e84040] text-sm pb-1">
-              <div>▲ {stock.change.toFixed(2)}</div>
-              <div>▲ {stock.changePercent.toFixed(2)}%</div>
+            <div className={`${isUp ? 'text-[#e84040]' : 'text-[#2dba6a]'} text-sm pb-1`}>
+              <div>{isUp ? '▲' : '▼'} {Math.abs(stock.change).toFixed(2)}</div>
+              <div>{isUp ? '▲' : '▼'} {Math.abs(stock.changePercent).toFixed(2)}%</div>
             </div>
           </div>
 
@@ -91,19 +111,19 @@ export function StockDetailPage() {
           <div className="grid grid-cols-2 gap-y-1.5 text-sm">
             <div className="flex gap-2">
               <span className="text-[#888]">最高</span>
-              <span className="text-[#e84040] font-medium">{stock.high.toFixed(2)}</span>
+              <span className="text-[#e84040] font-medium">{stock.high != null ? stock.high.toFixed(2) : '—'}</span>
             </div>
             <div className="flex gap-2">
               <span className="text-[#888]">昨收</span>
-              <span className="text-white font-medium">{stock.prevClose.toFixed(2)}</span>
+              <span className="text-white font-medium">{stock.prevClose != null ? stock.prevClose.toFixed(2) : '—'}</span>
             </div>
             <div className="flex gap-2">
               <span className="text-[#888]">最低</span>
-              <span className="text-[#e84040] font-medium">{stock.low.toFixed(2)}</span>
+              <span className="text-[#e84040] font-medium">{stock.low != null ? stock.low.toFixed(2) : '—'}</span>
             </div>
             <div className="flex gap-2">
               <span className="text-[#888]">開盤</span>
-              <span className="text-[#e84040] font-medium">{stock.open.toFixed(2)}</span>
+              <span className="text-[#e84040] font-medium">{stock.open != null ? stock.open.toFixed(2) : '—'}</span>
             </div>
           </div>
 
@@ -134,7 +154,7 @@ export function StockDetailPage() {
 
       {/* ── 捲動內容區 ── */}
       <div className="flex-1 overflow-y-auto pb-24">
-        {chartTab === 0 && <KLineTab timeTab={timeTab} setTimeTab={setTimeTab} prevClose={stock.prevClose} />}
+        {chartTab === 0 && <KLineTab timeTab={timeTab} setTimeTab={setTimeTab} prevClose={stock.prevClose ?? stock.price} />}
         {chartTab === 4 && <BrokerTab brokerTopTab={brokerTopTab} setBrokerTopTab={setBrokerTopTab} />}
         {chartTab !== 0 && chartTab !== 4 && (
           <div className="flex items-center justify-center h-40 text-[#555] text-sm">

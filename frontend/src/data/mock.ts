@@ -244,3 +244,65 @@ export const mockTop30: StockItem[] = [
   { id: '2317', name: '鴻海', price: 180.5, change: -2.0, changePercent: -1.1, description: '' },
   { id: '2454', name: '聯發科', price: 3420.0, change: -9.8, changePercent: -0.29, description: '' },
 ]
+
+// ── 類股 ──
+export interface SectorItem {
+  name: string
+  changePercent: number
+  advance: number
+  decline: number
+}
+
+export const mockSectors: SectorItem[] = [
+  { name: 'AI／雲端概念', changePercent:  3.12, advance:  8, decline: 1 },
+  { name: '半導體',       changePercent:  2.34, advance: 17, decline: 3 },
+  { name: '電子零組件',   changePercent:  1.85, advance: 12, decline: 5 },
+  { name: '航運',         changePercent:  1.23, advance:  5, decline: 4 },
+  { name: '傳產',         changePercent:  0.67, advance:  8, decline: 3 },
+  { name: '金融',         changePercent:  0.45, advance:  6, decline: 4 },
+  { name: '營建',         changePercent: -0.34, advance:  4, decline: 6 },
+  { name: '生技醫療',     changePercent: -0.82, advance:  3, decline: 8 },
+  { name: '面板',         changePercent: -1.47, advance:  2, decline: 9 },
+]
+
+// ── 個股概念群組 ──
+export const mockConceptGroups: Record<string, string[]> = {
+  '2330':  ['AI晶片', 'CoWoS供應鏈', 'HBM題材'],
+  '2454':  ['AI晶片', '無線通訊', '聯發科生態圈'],
+  '2317':  ['AI伺服器', 'GB200組裝', '蘋果供應鏈'],
+  '2344':  ['HBM記憶體', 'DRAM', 'AI相關'],
+  '3481':  ['面板', '車用顯示'],
+  '2308':  ['電源管理', '伺服器電源', 'AI供應鏈'],
+  '2382':  ['AI伺服器', 'ODM', '雲端基礎設施'],
+  '0050':  ['台股ETF', '指數型', '藍籌股'],
+  '0056':  ['高息ETF', '存股族最愛'],
+  '00878': ['高息ETF', 'ESG永續'],
+  '006208':['台股ETF', '指數型'],
+  'NVDA':  ['AI晶片', 'CUDA生態', '資料中心'],
+  'AAPL':  ['蘋果生態', '消費電子', '服務收入'],
+  'MSFT':  ['雲端運算', 'AI', 'Azure'],
+  'TSLA':  ['電動車', '自動駕駛', '儲能'],
+  'META':  ['社群媒體', 'AI廣告', 'AR/VR'],
+  'AMZN':  ['電商', 'AWS雲端', 'AI基礎設施'],
+  'GOOGL': ['搜尋廣告', 'Google Cloud', 'AI大模型'],
+}
+
+// ── 社群討論 ──
+export interface ForumPost {
+  platform: 'PTT' | '股討區'
+  title: string
+  author: string
+  timeAgo: string
+  heat: number
+  sentiment: 'bull' | 'bear' | 'neutral'
+}
+
+export const mockForumPosts: Record<string, ForumPost[]> = {
+  default: [
+    { platform: 'PTT',  title: '今日盤中觀察與操作筆記', author: 'stockmaster88', timeAgo: '32分鐘前', heat: 142, sentiment: 'bull' },
+    { platform: '股討區', title: '外資連續買超，後市怎麼看？', author: '投資小白鼠', timeAgo: '1小時前', heat: 98, sentiment: 'bull' },
+    { platform: 'PTT',  title: '技術面分析－MACD即將翻多', author: 'ta_analyst', timeAgo: '2小時前', heat: 76, sentiment: 'bull' },
+    { platform: '股討區', title: '法說會重點整理懶人包', author: '財經小編', timeAgo: '3小時前', heat: 210, sentiment: 'neutral' },
+    { platform: 'PTT',  title: '今天沖太早跑掉真的哭哭', author: 'trader_cry', timeAgo: '4小時前', heat: 55, sentiment: 'bear' },
+  ],
+}

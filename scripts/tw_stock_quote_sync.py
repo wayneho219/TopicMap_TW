@@ -42,6 +42,9 @@ class Quote:
     change_pct: str   # "+2.02%" / "-0.74%" / ""
     volume: int | None
     quote_date: str   # ISO "2026-04-13"
+    open_price: float | None = None
+    high_price: float | None = None
+    low_price: float | None = None
 
 
 def fetch_json(url: str) -> list[dict]:
@@ -114,6 +117,9 @@ def load_twse_quotes() -> list[Quote]:
                 change_pct=pct_str,
                 volume=int(vol_raw) if vol_raw is not None else None,
                 quote_date=date,
+                open_price=to_float(row.get("OpeningPrice") or ""),
+                high_price=to_float(row.get("HighestPrice") or ""),
+                low_price=to_float(row.get("LowestPrice") or ""),
             )
         )
     return out
@@ -155,6 +161,9 @@ def load_tpex_quotes(url: str) -> list[Quote]:
                 change_pct=pct_str,
                 volume=int(vol_raw) if vol_raw is not None else None,
                 quote_date=date,
+                open_price=to_float(row.get("Open") or ""),
+                high_price=to_float(row.get("High") or ""),
+                low_price=to_float(row.get("Low") or ""),
             )
         )
     return out
@@ -169,6 +178,9 @@ def ensure_quote_columns(conn: sqlite3.Connection) -> None:
         ("change_pct",  "TEXT"),
         ("volume",      "INTEGER"),
         ("quote_date",  "TEXT"),
+        ("open_price",  "REAL"),
+        ("high_price",  "REAL"),
+        ("low_price",   "REAL"),
     ]
     for col_name, col_type in new_cols:
         if col_name not in existing:
@@ -218,10 +230,14 @@ def main() -> None:
                     change_val  = ?,
                     change_pct  = ?,
                     volume      = ?,
-                    quote_date  = ?
+                    quote_date  = ?,
+                    open_price  = ?,
+                    high_price  = ?,
+                    low_price   = ?
                 WHERE stock_code = ?
                 """,
-                (q.close_price, q.change_val, q.change_pct, q.volume, q.quote_date, q.stock_code),
+                (q.close_price, q.change_val, q.change_pct, q.volume, q.quote_date,
+                 q.open_price, q.high_price, q.low_price, q.stock_code),
             )
             updated += cur.rowcount
 

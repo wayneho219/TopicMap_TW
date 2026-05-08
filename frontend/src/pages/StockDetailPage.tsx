@@ -8,12 +8,15 @@ import {
   ComposedChart, BarChart, Line, Bar, XAxis, YAxis, CartesianGrid,
   ResponsiveContainer, ReferenceLine,
 } from 'recharts'
-import { mockChartData } from '../data/mock'
+import { mockChartData, mockForumPosts } from '../data/mock'
+import conceptGroupsData from '../data/conceptGroups.json'
+
+const conceptGroups = conceptGroupsData as Record<string, string[]>
 import { useStock } from '../hooks/useStock'
 import { useWatchlist } from '../hooks/useWatchlist'
 import { useIntraday, type IntradayPoint } from '../hooks/useIntraday'
 
-const chartTabs = ['K線', '五檔', '價量', '明細', '券商分點', '指標', '籌碼']
+const chartTabs = ['K線', '五檔', '價量', '明細', '券商分點', '指標', '籌碼', '社群']
 const timeTabs = ['分時', '日', '週', '月']
 const brokerTopTabs = ['買超 Top 15', '賣超 Top 15']
 
@@ -167,13 +170,28 @@ export function StockDetailPage() {
             </div>
           </div>
 
-          <div className="flex gap-2 mb-3">
+          <div className="flex gap-2 mb-2 flex-wrap">
             {stock.tags.map((tag) => (
               <span key={tag} className="border border-[#444] text-[#aaa] text-xs px-2.5 py-0.5 rounded-full">
                 {tag}
               </span>
             ))}
           </div>
+
+          {/* 概念股群組標籤 */}
+          {(conceptGroups[id ?? ''] ?? []).length > 0 && (
+            <div className="flex gap-1.5 mb-3 flex-wrap">
+              {(conceptGroups[id ?? ''] ?? []).map((g) => (
+                <button
+                  key={g}
+                  onClick={() => navigate(`/chain/${encodeURIComponent(g)}`)}
+                  className="bg-[#1a2e20] border border-[#2dba6a]/40 text-[#2dba6a] text-[11px] px-2 py-0.5 rounded-full active:opacity-60"
+                >
+                  # {g}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-y-1.5 text-sm">
             <div className="flex gap-2">
@@ -232,6 +250,7 @@ export function StockDetailPage() {
             籌碼（開發中）
           </div>
         )}
+        {chartTab === 7 && <CommunityTab id={id ?? ''} isUp={isUp} />}
       </div>
 
       {/* Bottom CTA Buttons — always visible */}
@@ -566,6 +585,86 @@ function BrokerTab({
             <span className="w-16 text-right text-[#aaa]">{row.sellAvg.toFixed(1)}</span>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+/* ── 社群 Tab ── */
+function CommunityTab({ id, isUp }: { id: string; isUp: boolean }) {
+  const bullPct  = isUp ? 65 : 38
+  const bearPct  = 100 - bullPct
+  const posts    = mockForumPosts[id] ?? mockForumPosts.default
+  const keywords = (conceptGroups[id] ?? ['電子', '科技', '台股'])
+    .concat(['外資買超', '法說會', '技術面'])
+    .slice(0, 6)
+
+  return (
+    <div className="px-3 pt-4 space-y-4 pb-6">
+
+      {/* 情緒儀表 */}
+      <div className="bg-[#1e1e1e] rounded-[12px] p-4">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-white text-sm font-medium">社群情緒</span>
+          <span className="text-[#666] text-xs">近 7 日論壇綜合</span>
+        </div>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-[#e84040] text-xs font-medium w-8">看多</span>
+          <div className="flex-1 h-3 rounded-full bg-[#2e2e2e] overflow-hidden flex">
+            <div className="bg-[#e84040] h-full rounded-l-full transition-all" style={{ width: `${bullPct}%` }} />
+            <div className="bg-[#2dba6a] h-full rounded-r-full transition-all" style={{ width: `${bearPct}%` }} />
+          </div>
+          <span className="text-[#2dba6a] text-xs font-medium w-8 text-right">看空</span>
+        </div>
+        <div className="flex justify-between text-xs text-[#888] px-8">
+          <span>{bullPct}%</span>
+          <span>{bearPct}%</span>
+        </div>
+      </div>
+
+      {/* 熱議關鍵字 */}
+      <div>
+        <div className="text-[#888] text-xs mb-2 px-1">近期熱議關鍵字（來自 AI 主題分析）</div>
+        <div className="flex flex-wrap gap-2">
+          {keywords.map((kw) => (
+            <span key={kw} className="bg-[#1e1e1e] border border-[#333] text-[#aaa] text-xs px-3 py-1.5 rounded-full">
+              {kw}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* 論壇討論列表 */}
+      <div>
+        <div className="flex items-center justify-between mb-2 px-1">
+          <span className="text-white text-sm font-medium">最新討論</span>
+          <span className="text-[#666] text-xs">PTT 股版 · 股討區</span>
+        </div>
+        <div className="space-y-2">
+          {posts.map((post, i) => (
+            <div key={i} className="bg-[#1e1e1e] rounded-[10px] p-3">
+              <div className="flex items-start gap-2 mb-1.5">
+                <span className={clsx(
+                  'flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded mt-0.5',
+                  post.platform === 'PTT' ? 'bg-[#4a9fd4]/20 text-[#4a9fd4]' : 'bg-[#2dba6a]/20 text-[#2dba6a]'
+                )}>
+                  {post.platform}
+                </span>
+                <span className="text-white text-sm leading-snug">{post.title}</span>
+              </div>
+              <div className="flex items-center gap-3 text-[#666] text-xs pl-7">
+                <span>{post.author}</span>
+                <span>{post.timeAgo}</span>
+                <span className={clsx(
+                  'ml-auto font-medium',
+                  post.sentiment === 'bull' ? 'text-[#e84040]' : post.sentiment === 'bear' ? 'text-[#2dba6a]' : 'text-[#888]'
+                )}>
+                  熱度 {post.heat}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )

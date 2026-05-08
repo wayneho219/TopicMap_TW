@@ -10,13 +10,16 @@ import { ProfilePage } from './pages/ProfilePage'
 import { RecurringPage } from './pages/RecurringPage'
 import { RecurringSubscribeUSPage } from './pages/RecurringSubscribeUSPage'
 import { RecurringSubscribeTWPage } from './pages/RecurringSubscribeTWPage'
+import { SectorDetailPage } from './pages/SectorDetailPage'
 
 function Layout() {
   const location = useLocation()
   const hideBottomNav =
     location.pathname.startsWith('/stock/') ||
     location.pathname === '/order' ||
-    location.pathname.startsWith('/subscribe/')
+    location.pathname.startsWith('/subscribe/') ||
+    location.pathname.startsWith('/sector/') ||
+    location.pathname.startsWith('/chain/')
 
   return (
     <div className="relative">
@@ -31,6 +34,8 @@ function Layout() {
         <Route path="/subscribe/us/:id" element={<RecurringSubscribeUSPage />} />
         <Route path="/account" element={<AccountPage />} />
         <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/sector/:name" element={<SectorDetailPage kind="sector" />} />
+        <Route path="/chain/:name" element={<SectorDetailPage kind="chain" />} />
       </Routes>
       {!hideBottomNav && <BottomNav />}
     </div>

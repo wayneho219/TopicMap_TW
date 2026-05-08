@@ -67,11 +67,21 @@ MARKET_MAP = {
     'otc':    'TPEX_OTC',
 }
 
+def _type_filter(stock_type: str) -> str:
+    if stock_type == 'etf':
+        return "AND stock_code LIKE '0%'"
+    if stock_type == 'stock':
+        return "AND stock_code NOT LIKE '0%'"
+    return ""  # 'all'
+
+
 @app.get('/api/market/hot')
-def get_market_hot(sort: str = 'volume', market: str = 'listed', limit: int = 10):
-    order = SORT_MAP.get(sort, SORT_MAP['volume'])
-    mkt   = MARKET_MAP.get(market, 'TWSE_LISTED')
-    conn  = sqlite3.connect(DB_PATH)
+def get_market_hot(sort: str = 'volume', market: str = 'listed',
+                   stock_type: str = 'stock', limit: int = 10):
+    order  = SORT_MAP.get(sort, SORT_MAP['volume'])
+    mkt    = MARKET_MAP.get(market, 'TWSE_LISTED')
+    filter_ = _type_filter(stock_type)
+    conn   = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
@@ -79,7 +89,7 @@ def get_market_hot(sort: str = 'volume', market: str = 'listed', limit: int = 10
             SELECT stock_code, stock_name, close_price, change_val, change_pct, volume
             FROM tw_stock_list
             WHERE market = ? AND close_price IS NOT NULL AND volume > 0
-              AND stock_code NOT LIKE '0%'
+              {filter_}
             ORDER BY {order}
             LIMIT ?
             ''',
@@ -102,16 +112,17 @@ def get_market_hot(sort: str = 'volume', market: str = 'listed', limit: int = 10
 
 
 @app.get('/api/market/search_hot')
-def get_search_hot(limit: int = 6):
+def get_search_hot(stock_type: str = 'stock', limit: int = 6):
+    filter_ = _type_filter(stock_type)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
-            '''
+            f'''
             SELECT stock_code, stock_name, close_price, change_val, change_pct
             FROM tw_stock_list
             WHERE market = 'TWSE_LISTED' AND close_price IS NOT NULL AND volume > 0
-              AND stock_code NOT LIKE '0%'
+              {filter_}
             ORDER BY ABS(CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL)) DESC
             LIMIT ?
             ''',
@@ -129,6 +140,61 @@ def get_search_hot(limit: int = 6):
             'changePercent': _parse_float(r['change_pct']),
         }
         for r in rows
+    ]
+
+
+@app.get('/api/stocks/prices')
+def get_stock_prices(ids: str = ''):
+    codes = [c.strip() for c in ids.split(',') if c.strip()]
+    if not codes:
+        return []
+    placeholders = ','.join('?' * len(codes))
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            f'''
+            SELECT stock_code, stock_name, close_price, change_val, change_pct, volume
+            FROM tw_stock_list
+            WHERE stock_code IN ({placeholders})
+            ''',
+            codes,
+        ).fetchall()
+    finally:
+        conn.close()
+    order_map = {c: i for i, c in enumerate(codes)}
+    result = _stock_rows_to_list(rows)
+    result.sort(key=lambda x: order_map.get(x['id'], 999))
+    return result
+
+
+@app.get('/api/market/recurring/tw')
+def get_recurring_tw(limit: int = 15):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            '''
+            SELECT stock_code, stock_name, close_price, change_val, change_pct, volume
+            FROM tw_stock_list
+            WHERE stock_code LIKE '0%'
+              AND close_price IS NOT NULL AND volume > 0
+            ORDER BY volume DESC
+            LIMIT ?
+            ''',
+            (limit,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [
+        {
+            'rank':          i + 1,
+            'id':            r['stock_code'],
+            'name':          r['stock_name'],
+            'price':         float(r['close_price']),
+            'changePercent': _parse_float(r['change_pct']),
+        }
+        for i, r in enumerate(rows)
     ]
 
 

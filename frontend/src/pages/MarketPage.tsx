@@ -5,9 +5,14 @@ import { clsx } from 'clsx'
 import { IndexCard } from '../components/IndexCard'
 import { HotSearchCard } from '../components/HotSearchCard'
 import { RankListItem } from '../components/RankListItem'
-import { mockIndices, mockHotSearch, mockHotMarket } from '../data/mock'
+import {
+  mockIndices, mockHotSearch, mockHotMarket,
+  mockIndicesUS, mockHotSearchUS, mockHotMarketUS,
+  mockIndicesETFTW, mockHotSearchETFTW, mockHotMarketETFTW,
+  mockIndicesETFUS, mockHotSearchETFUS, mockHotMarketETFUS,
+} from '../data/mock'
 
-const marketSubTabs = ['台股', '美股', '港股', '台股ETF', '美股ETF']
+const marketSubTabs = ['台股', '美股', '台股ETF', '美股ETF']
 const hotSortTabs = ['成交量', '成交值', '成交價', '漲幅', '跌幅']
 const marketToggle = ['上市', '上櫃']
 
@@ -16,6 +21,15 @@ export function MarketPage() {
   const [sortTab, setSortTab] = useState(0)
   const [toggle, setToggle] = useState(0)
   const navigate = useNavigate()
+
+  const isTW = subTab === 0 || subTab === 2
+
+  const indices   = subTab === 0 ? mockIndices      : subTab === 1 ? mockIndicesUS
+                  : subTab === 2 ? mockIndicesETFTW  : mockIndicesETFUS
+  const hotSearch = subTab === 0 ? mockHotSearch     : subTab === 1 ? mockHotSearchUS
+                  : subTab === 2 ? mockHotSearchETFTW : mockHotSearchETFUS
+  const hotMarket = subTab === 0 ? mockHotMarket     : subTab === 1 ? mockHotMarketUS
+                  : subTab === 2 ? mockHotMarketETFTW : mockHotMarketETFUS
 
   return (
     <div className="flex flex-col bg-[#111111] h-screen">
@@ -48,12 +62,12 @@ export function MarketPage() {
           ))}
         </div>
 
-        {/* Sub Tabs: 台股 美股 ... */}
+        {/* Sub Tabs */}
         <div className="flex overflow-x-auto scrollbar-none border-b border-[#2e2e2e] px-4">
           {marketSubTabs.map((t, i) => (
             <button
               key={t}
-              onClick={() => setSubTab(i)}
+              onClick={() => { setSubTab(i); setSortTab(0); setToggle(0) }}
               className={clsx(
                 'flex-shrink-0 mr-5 py-2.5 text-sm font-medium relative whitespace-nowrap',
                 i === subTab ? 'text-[#2dba6a]' : 'text-[#888]'
@@ -73,7 +87,7 @@ export function MarketPage() {
 
         {/* Index Cards */}
         <div className="flex gap-2">
-          {mockIndices.map((idx) => (
+          {indices.map((idx) => (
             <IndexCard key={idx.name} item={idx} />
           ))}
         </div>
@@ -85,7 +99,7 @@ export function MarketPage() {
             <button className="text-[#2dba6a] text-xs">看更多 &gt;</button>
           </div>
           <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-            {mockHotSearch.map((s) => (
+            {hotSearch.map((s) => (
               <HotSearchCard
                 key={s.id}
                 stock={s}
@@ -120,27 +134,29 @@ export function MarketPage() {
             ))}
           </div>
 
-          {/* 上市 / 上櫃 toggle */}
-          <div className="flex gap-2 mb-3">
-            {marketToggle.map((t, i) => (
-              <button
-                key={t}
-                onClick={() => setToggle(i)}
-                className={clsx(
-                  'px-4 py-1 text-xs rounded-full',
-                  i === toggle
-                    ? 'bg-[#2dba6a] text-white font-medium'
-                    : 'bg-[#2a2a2a] text-[#888]'
-                )}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
+          {/* 上市 / 上櫃 toggle — 只在台股類顯示 */}
+          {isTW && (
+            <div className="flex gap-2 mb-3">
+              {marketToggle.map((t, i) => (
+                <button
+                  key={t}
+                  onClick={() => setToggle(i)}
+                  className={clsx(
+                    'px-4 py-1 text-xs rounded-full',
+                    i === toggle
+                      ? 'bg-[#2dba6a] text-white font-medium'
+                      : 'bg-[#2a2a2a] text-[#888]'
+                  )}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Rank list */}
           <div className="flex flex-col gap-2">
-            {mockHotMarket.map((s, idx) => (
+            {hotMarket.map((s, idx) => (
               <RankListItem
                 key={s.id}
                 stock={s}
@@ -154,4 +170,3 @@ export function MarketPage() {
     </div>
   )
 }
-

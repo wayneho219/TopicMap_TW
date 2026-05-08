@@ -53,6 +53,47 @@ def _parse_volume(val) -> int:
     except ValueError:
         return 0
 
+@app.get('/api/stocks/search')
+def search_stocks(q: str = ''):
+    q = q.strip()
+    if not q:
+        return []
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            '''
+            SELECT stock_code, stock_name, market, industry_name,
+                   close_price, change_val, change_pct
+            FROM tw_stock_list
+            WHERE stock_code LIKE ? OR stock_name LIKE ?
+            ORDER BY
+                CASE WHEN stock_code = ?         THEN 0
+                     WHEN stock_code LIKE ?       THEN 1
+                     WHEN stock_name LIKE ?       THEN 2
+                     ELSE 3 END,
+                stock_code
+            LIMIT 30
+            ''',
+            (f'%{q}%', f'%{q}%', q, f'{q}%', f'{q}%'),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return [
+        {
+            'id': r['stock_code'],
+            'name': r['stock_name'],
+            'market': r['market'],
+            'industry': r['industry_name'],
+            'price': float(r['close_price']) if r['close_price'] is not None else 0.0,
+            'change': _parse_float(r['change_val']),
+            'changePercent': _parse_float(r['change_pct']),
+        }
+        for r in rows
+    ]
+
+
 @app.get('/api/stocks/{stock_id}/intraday')
 def get_intraday(stock_id: str):
     conn = sqlite3.connect(DB_PATH)

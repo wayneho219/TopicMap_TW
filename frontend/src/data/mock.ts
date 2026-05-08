@@ -57,22 +57,84 @@ export const mockHotMarket: StockItem[] = [
   { id: '2395', name: '研華', price: 280.0, change: 8.0, changePercent: 2.94, volume: 145300 },
 ]
 
+// ── 美股 ──
+export const mockIndicesUS: IndexItem[] = [
+  { name: 'S&P 500',  value: 5308.13, change:  36.88, changePercent:  0.70 },
+  { name: 'NASDAQ',   value: 16742.39, change: 137.53, changePercent:  0.83 },
+]
+
+export const mockHotSearchUS: StockItem[] = [
+  { id: 'NVDA',  name: 'NVIDIA',    price: 207.83, change:  8.43, changePercent:  4.23 },
+  { id: 'AAPL',  name: 'Apple',     price: 287.51, change:  3.21, changePercent:  1.13 },
+  { id: 'TSLA',  name: 'Tesla',     price: 285.60, change: 12.40, changePercent:  4.54 },
+  { id: 'META',  name: 'Meta',      price: 618.40, change: 15.20, changePercent:  2.52 },
+]
+
+export const mockHotMarketUS: StockItem[] = [
+  { id: 'NVDA',  name: 'NVIDIA',    price: 207.83, change:  8.43, changePercent:  4.23, volume: 412300 },
+  { id: 'AAPL',  name: 'Apple',     price: 287.51, change:  3.21, changePercent:  1.13, volume: 385600 },
+  { id: 'MSFT',  name: 'Microsoft', price: 492.30, change:  7.10, changePercent:  1.46, volume: 298400 },
+  { id: 'TSLA',  name: 'Tesla',     price: 285.60, change: 12.40, changePercent:  4.54, volume: 276800 },
+  { id: 'AMZN',  name: 'Amazon',    price: 225.10, change:  4.80, changePercent:  2.18, volume: 189500 },
+]
+
+// ── 台股 ETF ──
+export const mockIndicesETFTW: IndexItem[] = [
+  { name: '台灣50指數',   value: 2318.75, change:  60.50, changePercent:  2.68 },
+  { name: '高股息指數',   value: 1052.40, change:  15.30, changePercent:  1.48 },
+]
+
+export const mockHotSearchETFTW: StockItem[] = [
+  { id: '0050',   name: '元大台灣50',       price: 178.35, change:  3.45, changePercent:  1.97 },
+  { id: '00878',  name: '國泰永續高股息',   price:  27.89, change:  0.52, changePercent:  1.90 },
+  { id: '0056',   name: '元大高股息',       price:  38.42, change:  0.68, changePercent:  1.80 },
+  { id: '006208', name: '富邦台50',         price: 226.80, change:  4.80, changePercent:  2.16 },
+]
+
+export const mockHotMarketETFTW: StockItem[] = [
+  { id: '0050',   name: '元大台灣50',       price: 178.35, change:  3.45, changePercent:  1.97, volume: 312400 },
+  { id: '00878',  name: '國泰永續高股息',   price:  27.89, change:  0.52, changePercent:  1.90, volume: 289100 },
+  { id: '0056',   name: '元大高股息',       price:  38.42, change:  0.68, changePercent:  1.80, volume: 241500 },
+  { id: '006208', name: '富邦台50',         price: 226.80, change:  4.80, changePercent:  2.16, volume: 187300 },
+  { id: '00929',  name: '復華台灣科技主題', price:  25.08, change:  0.48, changePercent:  1.95, volume: 156700 },
+]
+
+// ── 美股 ETF ──
+export const mockIndicesETFUS: IndexItem[] = [
+  { name: 'SPY',  value: 584.30, change:  4.08, changePercent:  0.70 },
+  { name: 'QQQ',  value: 449.20, change:  6.15, changePercent:  1.39 },
+]
+
+export const mockHotSearchETFUS: StockItem[] = [
+  { id: 'SPY',   name: 'SPDR S&P 500', price: 584.30, change:  4.08, changePercent:  0.70 },
+  { id: 'QQQ',   name: 'Invesco QQQ',  price: 449.20, change:  6.15, changePercent:  1.39 },
+  { id: 'VTI',   name: 'Vanguard VTI', price: 272.50, change:  1.85, changePercent:  0.68 },
+  { id: 'ARKK',  name: 'ARK Innovation', price: 52.30, change:  2.10, changePercent:  4.19 },
+]
+
+export const mockHotMarketETFUS: StockItem[] = [
+  { id: 'SPY',   name: 'SPDR S&P 500', price: 584.30, change:  4.08, changePercent:  0.70, volume: 298700 },
+  { id: 'QQQ',   name: 'Invesco QQQ',  price: 449.20, change:  6.15, changePercent:  1.39, volume: 245300 },
+  { id: 'VTI',   name: 'Vanguard VTI', price: 272.50, change:  1.85, changePercent:  0.68, volume: 189400 },
+  { id: 'ARKK',  name: 'ARK Innovation', price: 52.30, change:  2.10, changePercent:  4.19, volume: 143200 },
+  { id: 'IWM',   name: 'iShares Russell 2000', price: 209.80, change:  3.20, changePercent:  1.55, volume: 121800 },
+]
+
 // TODO: replace with GET /api/watchlist
 export const mockWatchlistTW: WatchlistStock[] = [
-  { id: '006208', name: '富邦台50', price: 226.8, change: 4.8, changePercent: 2.16 },
-  { id: '00692', name: '富邦公司治理', price: 85.3, change: 1.75, changePercent: 2.09 },
-  { id: '2313', name: '華通', price: 249.5, change: 0.5, changePercent: 0.2 },
+  { id: '0050',   name: '元大台灣50',   price: 178.35, change:  3.45, changePercent:  1.97 },
+  { id: '2330',   name: '台積電',       price: 2310.0, change: 60.00, changePercent:  2.67 },
+  { id: '2454',   name: '聯發科',       price:  910.0, change: -18.0, changePercent: -1.94 },
+  { id: '2317',   name: '鴻海',         price:  198.5, change:  2.50, changePercent:  1.27 },
 ]
 
 export const mockWatchlistUS: WatchlistStock[] = [
-  { id: 'NBIS', name: 'NBIS', price: 195.09, change: 19.17, changePercent: 10.9 },
-  { id: 'AMD', name: 'AMD', price: 421.39, change: 66.13, changePercent: 18.61 },
-  { id: 'NVDA', name: 'NVDA', price: 207.83, change: 11.33, changePercent: 5.77 },
-  { id: 'PLTR', name: 'PLTR', price: 133.79, change: 2.12, changePercent: 1.56 },
-  { id: 'HIMS', name: 'HIMS', price: 26.88, change: -0.55, changePercent: -2.09 },
-  { id: 'PYPL', name: 'PYPL', price: 46.27, change: 0.22, changePercent: 0.47 },
-  { id: 'ISRG', name: 'ISRG', price: 451.73, change: -3.2, changePercent: -0.7 },
-  { id: 'BRK/B', name: 'BRK/B', price: 469.83, change: 5.1, changePercent: 1.09 },
+  { id: 'AAPL',   name: 'Apple',        price: 189.30, change:  2.45, changePercent:  1.31 },
+  { id: 'MSFT',   name: 'Microsoft',    price: 415.20, change:  6.80, changePercent:  1.66 },
+  { id: 'GOOGL',  name: 'Alphabet',     price: 171.50, change: -1.20, changePercent: -0.69 },
+  { id: 'AMZN',   name: 'Amazon',       price: 198.75, change:  3.10, changePercent:  1.58 },
+  { id: 'META',   name: 'Meta',         price: 512.40, change: 11.20, changePercent:  2.24 },
+  { id: 'TSLA',   name: 'Tesla',        price: 248.90, change: -4.30, changePercent: -1.70 },
 ]
 
 // TODO: replace with GET /api/stocks/:id
@@ -92,16 +154,16 @@ export const mockStockDetail = {
 
 // TODO: replace with GET /api/portfolio
 export const mockPortfolio: PortfolioStock[] = [
-  { id: '006208', name: '富邦台50', type: '現股', shares: 345, totalValue: 78137, totalCost: 7000, pnl: 78137, pnlPercent: 0 },
-  { id: '00692', name: '富邦公司治理', type: '現股', shares: 2539, totalValue: 216274, totalCost: 50000, pnl: 216274, pnlPercent: 0 },
-  { id: '2313', name: '華通', type: '現股', shares: 50, totalValue: 12462, totalCost: 7000, pnl: 5432, pnlPercent: 77.58 },
+  { id: '0050',  name: '元大台灣50', type: '現股', shares: 100, totalValue: 17835, totalCost: 15200, pnl:  2635, pnlPercent: 17.34 },
+  { id: '2330',  name: '台積電',     type: '現股', shares:  10, totalValue: 23100, totalCost: 19500, pnl:  3600, pnlPercent: 18.46 },
+  { id: '2454',  name: '聯發科',     type: '現股', shares:   5, totalValue:  4550, totalCost:  5200, pnl:  -650, pnlPercent: -12.50 },
 ]
 
 export const mockPortfolioSummary = {
-  totalValue: 306845,
-  totalCost: 7002,
-  totalPnl: 299843,
-  totalPnlPercent: 4282.25,
+  totalValue: 45485,
+  totalCost:  39900,
+  totalPnl:    5585,
+  totalPnlPercent: 14.0,
 }
 
 export interface ChartPoint {

@@ -16,6 +16,61 @@ const chartTabs = ['K線', '五檔', '價量', '明細', '券商分點', '指標
 const timeTabs = ['分時', '日', '週', '月']
 const brokerTopTabs = ['買超 Top 15', '賣超 Top 15']
 
+const mockOrderBook = {
+  bids: [
+    { vol: 96,  price: 224.25 },
+    { vol: 121, price: 224.20 },
+    { vol: 48,  price: 224.15 },
+    { vol: 246, price: 224.10 },
+    { vol: 261, price: 224.05 },
+  ],
+  asks: [
+    { price: 224.30, vol: 1  },
+    { price: 224.40, vol: 2  },
+    { price: 224.45, vol: 12 },
+    { price: 224.50, vol: 46 },
+    { price: 224.55, vol: 35 },
+  ],
+}
+
+const mockVolumePrice = [
+  { price: 226.20, vol: 5   },
+  { price: 226.10, vol: 115 },
+  { price: 226.05, vol: 1   },
+  { price: 226.00, vol: 389 },
+  { price: 225.95, vol: 26  },
+  { price: 225.90, vol: 170 },
+  { price: 225.85, vol: 31  },
+  { price: 225.80, vol: 192 },
+  { price: 225.75, vol: 22  },
+  { price: 225.70, vol: 114 },
+  { price: 225.65, vol: 6   },
+  { price: 225.60, vol: 93  },
+]
+
+const mockTradeDetail = [
+  { time: '12:22:49', bid: 224.25, ask: 224.30, last: 224.25, vol: 1 },
+  { time: '12:22:38', bid: 224.25, ask: 224.30, last: 224.25, vol: 1 },
+  { time: '12:22:29', bid: 224.25, ask: 224.30, last: 224.25, vol: 1 },
+  { time: '12:22:27', bid: 224.25, ask: 224.30, last: 224.25, vol: 1 },
+  { time: '12:22:16', bid: 224.25, ask: 224.30, last: 224.25, vol: 1 },
+  { time: '12:22:04', bid: 224.25, ask: 224.30, last: 224.25, vol: 1 },
+  { time: '12:21:52', bid: 224.20, ask: 224.40, last: 224.30, vol: 1 },
+  { time: '12:21:40', bid: 224.20, ask: 224.40, last: 224.25, vol: 2 },
+  { time: '12:21:28', bid: 224.20, ask: 224.35, last: 224.20, vol: 1 },
+  { time: '12:21:15', bid: 224.15, ask: 224.35, last: 224.20, vol: 3 },
+]
+
+const mockIndicators = [
+  { label: '外資連3日買超',   active: true  },
+  { label: '均線多頭排列',    active: true  },
+  { label: '股價創5日新高',   active: true  },
+  { label: '股價創20日新高',  active: true  },
+  { label: '5日均量>1000張', active: false },
+  { label: 'KD黃金交叉',     active: false },
+  { label: '週MACD翻多',     active: true  },
+]
+
 // TODO: replace with GET /api/stocks/:id/broker
 const mockBrokerStats = {
   netFlow: '+846',
@@ -165,10 +220,14 @@ export function StockDetailPage() {
       {/* ── 捲動內容區 ── */}
       <div className="flex-1 overflow-y-auto pb-24">
         {chartTab === 0 && <KLineTab timeTab={timeTab} setTimeTab={setTimeTab} prevClose={stock.prevClose ?? stock.price} />}
+        {chartTab === 1 && <OrderBookTab />}
+        {chartTab === 2 && <VolumePriceTab />}
+        {chartTab === 3 && <TradeDetailTab />}
         {chartTab === 4 && <BrokerTab brokerTopTab={brokerTopTab} setBrokerTopTab={setBrokerTopTab} />}
-        {chartTab !== 0 && chartTab !== 4 && (
+        {chartTab === 5 && <IndicatorsTab />}
+        {chartTab === 6 && (
           <div className="flex items-center justify-center h-40 text-[#555] text-sm">
-            {chartTabs[chartTab]}（開發中）
+            籌碼（開發中）
           </div>
         )}
       </div>
@@ -187,6 +246,123 @@ export function StockDetailPage() {
         >
           個股下單
         </button>
+      </div>
+    </div>
+  )
+}
+
+/* ── 五檔 Tab ── */
+function OrderBookTab() {
+  const { bids, asks } = mockOrderBook
+  const totalBid = bids.reduce((s, r) => s + r.vol, 0)
+  const totalAsk = asks.reduce((s, r) => s + r.vol, 0)
+  const bidPct = totalBid / (totalBid + totalAsk)
+
+  return (
+    <div className="pt-2">
+      <div className="flex items-center px-4 py-2 text-[#666] text-xs border-b border-[#2e2e2e]">
+        <span className="w-16 text-right">委買量</span>
+        <span className="flex-1 text-center">買價</span>
+        <span className="flex-1 text-center">賣價</span>
+        <span className="w-16 pl-4">委賣量</span>
+      </div>
+      {bids.map((bid, i) => (
+        <div key={i} className="flex items-center px-4 py-3.5 border-b border-[#1e1e1e]">
+          <span className="w-16 text-right text-white text-sm">{bid.vol}</span>
+          <span className="flex-1 text-center text-[#2dba6a] text-sm font-medium relative">
+            {bid.price.toFixed(2)}
+            {i === 0 && (
+              <span className="absolute -bottom-[3px] left-1/2 -translate-x-1/2 w-14 h-[2px] bg-orange-400 rounded-full" />
+            )}
+          </span>
+          <span className="flex-1 text-center text-[#2dba6a] text-sm font-medium">
+            {asks[i].price.toFixed(2)}
+          </span>
+          <span className="w-16 pl-4 text-white text-sm">{asks[i].vol}</span>
+        </div>
+      ))}
+      <div className="flex items-center px-4 py-3 gap-3">
+        <span className="w-16 text-right text-white text-xs">小計 {totalBid}</span>
+        <div className="flex-1 h-2 rounded-full overflow-hidden flex">
+          <div className="bg-[#e84040]" style={{ width: `${bidPct * 100}%` }} />
+          <div className="bg-[#2dba6a]" style={{ width: `${(1 - bidPct) * 100}%` }} />
+        </div>
+        <span className="w-16 pl-4 text-white text-xs">{totalAsk} 小計</span>
+      </div>
+    </div>
+  )
+}
+
+/* ── 價量 Tab ── */
+function VolumePriceTab() {
+  const maxVol = Math.max(...mockVolumePrice.map((r) => r.vol))
+  return (
+    <div className="pt-2">
+      <div className="flex items-center px-4 py-2 text-[#666] text-xs border-b border-[#2e2e2e]">
+        <span className="w-20 text-right">價</span>
+        <span className="flex-1 mx-3" />
+        <span className="w-12 text-right">量</span>
+      </div>
+      {mockVolumePrice.map((row, i) => (
+        <div key={i} className="flex items-center px-4 py-2 border-b border-[#1e1e1e]">
+          <span className="w-20 text-right text-[#2dba6a] text-sm font-medium">
+            {row.price.toFixed(2)}
+          </span>
+          <div className="flex-1 mx-3 h-3 rounded-sm overflow-hidden bg-[#222]">
+            <div
+              className="h-full bg-orange-400 rounded-sm"
+              style={{ width: `${(row.vol / maxVol) * 100}%` }}
+            />
+          </div>
+          <span className="w-12 text-right text-white text-sm">{row.vol}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ── 明細 Tab ── */
+function TradeDetailTab() {
+  return (
+    <div className="pt-2">
+      <div className="flex items-center px-4 py-2 text-[#666] text-xs border-b border-[#2e2e2e]">
+        <span className="w-20">時間</span>
+        <span className="flex-1 text-right">買價</span>
+        <span className="flex-1 text-right">賣價</span>
+        <span className="flex-1 text-right">成交</span>
+        <span className="w-10 text-right">單量</span>
+      </div>
+      {mockTradeDetail.map((row, i) => (
+        <div key={i} className="flex items-center px-4 py-3 border-b border-[#1e1e1e] text-sm">
+          <span className="w-20 text-[#888]">{row.time}</span>
+          <span className="flex-1 text-right text-[#2dba6a]">{row.bid.toFixed(2)}</span>
+          <span className="flex-1 text-right text-[#2dba6a]">{row.ask.toFixed(2)}</span>
+          <span className="flex-1 text-right text-[#2dba6a]">{row.last.toFixed(2)}</span>
+          <span className="w-10 text-right text-white">{row.vol}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ── 指標 Tab ── */
+function IndicatorsTab() {
+  const activeCount = mockIndicators.filter((i) => i.active).length
+  return (
+    <div className="pt-3 px-4">
+      <div className="text-orange-400 text-base font-semibold mb-1">
+        {activeCount} 個變動
+      </div>
+      <div className="divide-y divide-[#2e2e2e]">
+        {mockIndicators.map((item) => (
+          <div key={item.label} className="flex items-center gap-3 py-4">
+            <span
+              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+              style={{ background: item.active ? '#e84040' : '#555' }}
+            />
+            <span className="text-white text-sm">{item.label}</span>
+          </div>
+        ))}
       </div>
     </div>
   )

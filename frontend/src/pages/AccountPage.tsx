@@ -4,6 +4,8 @@ import { clsx } from 'clsx'
 import { mockPortfolio, mockPortfolioSummary } from '../data/mock'
 import { PieChart, Pie, Cell } from 'recharts'
 
+const sg = (n: number) => n >= 0 ? '+' : ''   // sign prefix for PnL
+
 const mainTabs    = ['總覽', '台股', '海外股票', '海外債券', '境外SN']
 const subTabs     = ['委託', '成交', '庫存', '對帳單', '交割款']
 
@@ -230,7 +232,7 @@ function OverviewTab({ hideAmt, onToggleHide }: { hideAmt: boolean; onToggleHide
         </div>
         <div className="flex items-baseline gap-2 mb-3">
           <span className="text-white text-2xl font-bold">{mask(grandTotal.toLocaleString())}</span>
-          <span className="text-[#e84040] text-sm">({mask(`+${grandPnlPct.toFixed(2)}%`)})</span>
+          <span className={clsx('text-sm', grandPnlPct >= 0 ? 'text-[#e84040]' : 'text-[#2dba6a]')}>({mask(`${sg(grandPnlPct)}${grandPnlPct.toFixed(2)}%`)})</span>
         </div>
         <div className="flex gap-6 mb-3">
           <div>
@@ -239,7 +241,7 @@ function OverviewTab({ hideAmt, onToggleHide }: { hideAmt: boolean; onToggleHide
           </div>
           <div>
             <div className="text-[#888] text-xs mb-0.5">不含息參考報酬 <span className="text-[#666]">ⓘ</span></div>
-            <div className="text-[#e84040] text-sm font-medium">{mask(`+${grandPnl.toLocaleString()}`)}</div>
+            <div className={clsx('text-sm font-medium', grandPnl >= 0 ? 'text-[#e84040]' : 'text-[#2dba6a]')}>{mask(`${sg(grandPnl)}${grandPnl.toLocaleString()}`)}</div>
           </div>
         </div>
         {/* 台股/海外分配條 */}
@@ -262,11 +264,11 @@ function OverviewTab({ hideAmt, onToggleHide }: { hideAmt: boolean; onToggleHide
         <DonutCard
           currency="TWD"
           amount={mask(twTotal.toLocaleString())}
-          pctLabel={mask(`+${twPnlPct.toFixed(2)}%`)}
+          pctLabel={mask(`${sg(twPnlPct)}${twPnlPct.toFixed(2)}%`)}
           pie={twPie}
           legend={twPie}
           cost={mask(twCost.toLocaleString())}
-          pnl={mask(`+${twPnl.toLocaleString()}`)}
+          pnl={mask(`${sg(twPnl)}${twPnl.toLocaleString()}`)}
         />
         <button className="flex items-center gap-2 mt-3 text-[#2dba6a] text-xs">
           <Leaf size={14} />
@@ -296,11 +298,11 @@ function OverviewTab({ hideAmt, onToggleHide }: { hideAmt: boolean; onToggleHide
         <DonutCard
           currency="USD"
           amount={mask(usMock.totalValueUSD.toFixed(2))}
-          pctLabel={mask(`+${usMock.pnlPct.toFixed(2)}%`)}
+          pctLabel={mask(`${sg(usMock.pnlPct)}${usMock.pnlPct.toFixed(2)}%`)}
           pie={usPie}
           legend={usPie}
           cost={mask(usMock.totalCostUSD.toFixed(2))}
-          pnl={mask(`+${usMock.pnlUSD.toFixed(2)}`)}
+          pnl={mask(`${sg(usMock.pnlUSD)}${usMock.pnlUSD.toFixed(2)}`)}
         />
       </div>
     </div>
@@ -338,8 +340,8 @@ function USPortfolioTab({ hideAmt, onToggleHide }: { hideAmt: boolean; onToggleH
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-[#888]">總損益 (不含息)</span>
-            <span className="text-[#e84040] font-medium">
-              {hideAmt ? '****' : `+${usMock.pnlUSD.toFixed(2)} (+${usMock.pnlPct.toFixed(2)}%)`}
+            <span className={clsx('font-medium', usMock.pnlUSD >= 0 ? 'text-[#e84040]' : 'text-[#2dba6a]')}>
+              {hideAmt ? '****' : `${sg(usMock.pnlUSD)}${usMock.pnlUSD.toFixed(2)} (${sg(usMock.pnlPct)}${usMock.pnlPct.toFixed(2)}%)`}
             </span>
           </div>
         </div>
@@ -377,8 +379,8 @@ function USPortfolioTab({ hideAmt, onToggleHide }: { hideAmt: boolean; onToggleH
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[#888] text-xs">總損益 (不含息)</span>
-              <span className="text-[#e84040] text-sm font-medium">
-                {hideAmt ? '****' : `+${stock.pnl.toFixed(2)} (+${stock.pnlPercent.toFixed(2)}%)`}
+              <span className={clsx('text-sm font-medium', stock.pnl >= 0 ? 'text-[#e84040]' : 'text-[#2dba6a]')}>
+                {hideAmt ? '****' : `${sg(stock.pnl)}${stock.pnl.toFixed(2)} (${sg(stock.pnlPercent)}${stock.pnlPercent.toFixed(2)}%)`}
               </span>
             </div>
           </div>
@@ -401,7 +403,7 @@ function EmptyState() {
 function PortfolioTab({ hideAmt, onToggleHide }: { hideAmt: boolean; onToggleHide: () => void }) {
   const s = mockPortfolioSummary
   const fmt = (n: number) => hideAmt ? '****' : n.toLocaleString()
-  const fmtPct = (n: number) => hideAmt ? '**.**%' : `+${n.toFixed(2)}%`
+  const fmtPct = (n: number) => hideAmt ? '**.**%' : `${sg(n)}${n.toFixed(2)}%`
 
   return (
     <div className="px-3 pt-3 space-y-3">
@@ -431,8 +433,8 @@ function PortfolioTab({ hideAmt, onToggleHide }: { hideAmt: boolean; onToggleHid
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-[#888]">總損益 (不含息)</span>
-            <span className="text-[#e84040] font-medium">
-              {hideAmt ? '****' : `+${s.totalPnl.toLocaleString()} (${fmtPct(s.totalPnlPercent)})`}
+            <span className={clsx('font-medium', s.totalPnl >= 0 ? 'text-[#e84040]' : 'text-[#2dba6a]')}>
+              {hideAmt ? '****' : `${sg(s.totalPnl)}${s.totalPnl.toLocaleString()} (${fmtPct(s.totalPnlPercent)})`}
             </span>
           </div>
         </div>
@@ -473,7 +475,7 @@ function PortfolioTab({ hideAmt, onToggleHide }: { hideAmt: boolean; onToggleHid
               <span className={clsx('text-sm font-medium', stock.pnl >= 0 ? 'text-[#e84040]' : 'text-[#2dba6a]')}>
                 {hideAmt
                   ? '****'
-                  : `+${stock.pnl.toLocaleString()} (${stock.pnlPercent === 0 ? '0%' : `+${stock.pnlPercent.toFixed(2)}%`})`
+                  : `${sg(stock.pnl)}${stock.pnl.toLocaleString()} (${stock.pnlPercent === 0 ? '0%' : `${sg(stock.pnlPercent)}${stock.pnlPercent.toFixed(2)}%`})`
                 }
               </span>
             </div>

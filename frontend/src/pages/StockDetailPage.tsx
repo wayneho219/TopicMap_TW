@@ -10,6 +10,7 @@ import {
 } from 'recharts'
 import { mockChartData } from '../data/mock'
 import { useStock } from '../hooks/useStock'
+import { useWatchlist } from '../hooks/useWatchlist'
 
 const chartTabs = ['K線', '五檔', '價量', '明細', '券商分點', '指標', '籌碼']
 const timeTabs = ['分時', '日', '週', '月']
@@ -59,6 +60,7 @@ export function StockDetailPage() {
   }
 
   const isUp = stock.change >= 0
+  const { isWatched, toggle } = useWatchlist(id)
 
   return (
     <div className="flex flex-col bg-[#111111] h-screen">
@@ -73,9 +75,17 @@ export function StockDetailPage() {
           <span className="text-white text-base font-medium">
             ({id ?? stock.id}) {stock.name}
           </span>
-          <div className="flex items-center gap-3 text-[#888]">
-            <Heart size={20} />
-            <Search size={20} />
+          <div className="flex items-center gap-3">
+            <button onClick={toggle} className="active:opacity-60 p-1">
+              <Heart
+                size={20}
+                className={isWatched ? 'text-[#e84040]' : 'text-[#888]'}
+                fill={isWatched ? 'currentColor' : 'none'}
+              />
+            </button>
+            <button onClick={() => navigate('/search')} className="text-[#888] active:opacity-60 p-1">
+              <Search size={20} />
+            </button>
           </div>
         </div>
 

@@ -96,6 +96,7 @@ export function StockDetailPage() {
   const [timeTab, setTimeTab] = useState(0)
   const [brokerTopTab, setBrokerTopTab] = useState(0)
   const { stock, loading, error } = useStock(id)
+  const { isWatched, toggle } = useWatchlist(id)
 
   if (loading) {
     return (
@@ -115,7 +116,6 @@ export function StockDetailPage() {
   }
 
   const isUp = stock.change >= 0
-  const { isWatched, toggle } = useWatchlist(id)
 
   return (
     <div className="flex flex-col bg-[#111111] h-screen">

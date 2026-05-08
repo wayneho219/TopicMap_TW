@@ -37,6 +37,8 @@ REQUEST_TIMEOUT = 60
 @dataclass(frozen=True)
 class Quote:
     stock_code: str
+    stock_name: str
+    market: str        # TWSE_LISTED / TPEX_OTC / TPEX_EMERGING
     close_price: float | None
     change_val: str   # "+1.60" / "-0.28" / "" if unavailable
     change_pct: str   # "+2.02%" / "-0.74%" / ""
@@ -95,6 +97,7 @@ def load_twse_quotes() -> list[Quote]:
     out: list[Quote] = []
     for row in data:
         code = (row.get("Code") or "").strip()
+        name = (row.get("Name") or "").strip()
         if not code:
             continue
         close = to_float(row.get("ClosingPrice") or "")
@@ -112,6 +115,8 @@ def load_twse_quotes() -> list[Quote]:
         out.append(
             Quote(
                 stock_code=code,
+                stock_name=name,
+                market="TWSE_LISTED",
                 close_price=close,
                 change_val=chg_str,
                 change_pct=pct_str,
@@ -125,7 +130,7 @@ def load_twse_quotes() -> list[Quote]:
     return out
 
 
-def load_tpex_quotes(url: str) -> list[Quote]:
+def load_tpex_quotes(url: str, market: str) -> list[Quote]:
     try:
         data = fetch_json(url)
     except Exception as e:
@@ -135,18 +140,17 @@ def load_tpex_quotes(url: str) -> list[Quote]:
     out: list[Quote] = []
     for row in data:
         code = (row.get("SecuritiesCompanyCode") or "").strip()
+        name = (row.get("CompanyName") or "").strip()
         if not code:
             continue
 
         close = to_float(row.get("Close") or "")
-        # TPEx Change already has +/- sign as a string, e.g. "+0.28"
         change_raw = (row.get("Change") or "").strip()
         change = to_float(change_raw)
         vol_raw = to_float(row.get("TradingShares") or "")
         date = roc_to_iso(row.get("Date") or "")
 
         if close is not None and change is not None:
-            # Preserve the original sign string from the API; re-format for consistency
             chg_str = fmt_change(change)
             pct_str = compute_pct(close, change)
         else:
@@ -156,6 +160,8 @@ def load_tpex_quotes(url: str) -> list[Quote]:
         out.append(
             Quote(
                 stock_code=code,
+                stock_name=name,
+                market=market,
                 close_price=close,
                 change_val=chg_str,
                 change_pct=pct_str,
@@ -205,11 +211,11 @@ def main() -> None:
     print(f"  {len(twse_quotes)} records")
 
     print("Fetching TPEx OTC quotes ...")
-    otc_quotes = load_tpex_quotes(TPEX_OTC_QUOTE_URL)
+    otc_quotes = load_tpex_quotes(TPEX_OTC_QUOTE_URL, "TPEX_OTC")
     print(f"  {len(otc_quotes)} records")
 
     print("Fetching TPEx emerging quotes ...")
-    esb_quotes = load_tpex_quotes(TPEX_ESB_QUOTE_URL)
+    esb_quotes = load_tpex_quotes(TPEX_ESB_QUOTE_URL, "TPEX_EMERGING")
     print(f"  {len(esb_quotes)} records")
 
     # Merge; first seen wins (TWSE → OTC → ESB)
@@ -221,8 +227,21 @@ def main() -> None:
     try:
         ensure_quote_columns(conn)
 
-        updated = 0
+        inserted = updated = 0
         for q in all_quotes.values():
+            # Insert new records (ETFs / new listings not in tw_stock_list_sync)
+            cur = conn.execute(
+                """
+                INSERT OR IGNORE INTO tw_stock_list
+                    (stock_code, stock_name, market, industry_code, industry_name,
+                     source_url, source_as_of, synced_at)
+                VALUES (?, ?, ?, '', 'ETF', '', '', datetime('now', 'localtime'))
+                """,
+                (q.stock_code, q.stock_name, q.market),
+            )
+            inserted += cur.rowcount
+
+            # Update price fields for all records
             cur = conn.execute(
                 """
                 UPDATE tw_stock_list
@@ -245,7 +264,7 @@ def main() -> None:
     finally:
         conn.close()
 
-    print(f"Updated {updated} rows in {args.db.resolve()}")
+    print(f"Inserted {inserted} new, updated {updated} rows in {args.db.resolve()}")
 
 
 if __name__ == "__main__":

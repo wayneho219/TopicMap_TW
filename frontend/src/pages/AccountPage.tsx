@@ -55,7 +55,7 @@ export function AccountPage() {
         {/* Account Selector — 只在非總覽 tab 顯示 */}
         {mainTab !== 0 && (
           <div className="mx-3 mt-2.5 mb-1 bg-[#1e1e1e] rounded-[8px] px-3 py-2.5">
-            <span className="text-[#aaa] text-sm">證券-台北總公司 9822896</span>
+            <span className="text-[#aaa] text-sm">證券-台中總公司 0012345</span>
           </div>
         )}
 
@@ -114,12 +114,14 @@ export function AccountPage() {
         {/* 其他 tab（台股/海外/債券/SN） */}
         {mainTab !== 0 && (
           <>
-            {subTab === 0 && <EmptyState />}
-            {subTab === 1 && <EmptyState />}
-            {subTab === 2 && (
+            {subTab !== 2 && <EmptyState />}
+            {subTab === 2 && mainTab === 1 && (
               <PortfolioTab hideAmt={hideAmt} onToggleHide={() => setHideAmt(h => !h)} />
             )}
-            {(subTab === 3 || subTab === 4) && <EmptyState />}
+            {subTab === 2 && mainTab === 2 && (
+              <USPortfolioTab hideAmt={hideAmt} onToggleHide={() => setHideAmt(h => !h)} />
+            )}
+            {subTab === 2 && mainTab >= 3 && <EmptyState />}
           </>
         )}
       </div>
@@ -128,14 +130,38 @@ export function AccountPage() {
 }
 
 /* ── 總覽 Tab ── */
-const twPie = [
-  { name: '富邦公司...', value: 70.5, color: '#4a9fd4' },
-  { name: '富邦台50',   value: 25.4, color: '#7ec8e3' },
-  { name: '華通',       value: 4.1,  color: '#2dba6a' },
-]
+const PIE_COLORS = ['#4a9fd4', '#7ec8e3', '#2dba6a', '#e8a040', '#a06ad4']
+const twTotal = mockPortfolio.reduce((s, p) => s + p.totalValue, 0)
+const twPie = mockPortfolio.map((p, i) => ({
+  name: p.name.slice(0, 5),
+  value: Math.round(p.totalValue / twTotal * 1000) / 10,
+  color: PIE_COLORS[i % PIE_COLORS.length],
+}))
+
+const usMock = { totalValueUSD: 1243.50, totalCostUSD: 1180.00, pnlUSD: 63.50, pnlPct: 5.38 }
+const US_RATE = 32.5
+const usTotalTWD = Math.round(usMock.totalValueUSD * US_RATE)
 const usPie = [
-  { name: 'PLTR', value: 100, color: '#4a9fd4' },
+  { name: 'AAPL', value: 45, color: '#4a9fd4' },
+  { name: 'MSFT', value: 35, color: '#7ec8e3' },
+  { name: 'GOOGL', value: 20, color: '#2dba6a' },
 ]
+
+const mockUSPortfolio = [
+  { id: 'AAPL',  name: 'Apple',     type: '美股', shares: 2,   totalValue: 559.58, totalCost: 531.00, pnl:  28.58, pnlPercent: 5.38 },
+  { id: 'MSFT',  name: 'Microsoft', type: '美股', shares: 1,   totalValue: 435.23, totalCost: 413.00, pnl:  22.23, pnlPercent: 5.38 },
+  { id: 'GOOGL', name: 'Alphabet',  type: '美股', shares: 0.6, totalValue: 248.70, totalCost: 236.00, pnl:  12.70, pnlPercent: 5.38 },
+]
+
+const twCost    = mockPortfolioSummary.totalCost
+const twPnl     = mockPortfolioSummary.totalPnl
+const twPnlPct  = mockPortfolioSummary.totalPnlPercent
+const grandTotal   = twTotal + usTotalTWD
+const grandCost    = twCost + Math.round(usMock.totalCostUSD * US_RATE)
+const grandPnl     = twPnl + Math.round(usMock.pnlUSD * US_RATE)
+const grandPnlPct  = grandPnl / grandCost * 100
+const twAllocPct   = (twTotal / grandTotal * 100).toFixed(2)
+const usAllocPct   = (usTotalTWD / grandTotal * 100).toFixed(2)
 
 function DonutCard({
   currency, amount, pctLabel, pie, legend, cost, pnl,
@@ -203,27 +229,27 @@ function OverviewTab({ hideAmt, onToggleHide }: { hideAmt: boolean; onToggleHide
           <span className="text-[#666] text-xs">依昨收匯率計算</span>
         </div>
         <div className="flex items-baseline gap-2 mb-3">
-          <span className="text-white text-2xl font-bold">{mask('326,202')}</span>
-          <span className="text-[#e84040] text-sm">({mask('+1047.95%')})</span>
+          <span className="text-white text-2xl font-bold">{mask(grandTotal.toLocaleString())}</span>
+          <span className="text-[#e84040] text-sm">({mask(`+${grandPnlPct.toFixed(2)}%`)})</span>
         </div>
         <div className="flex gap-6 mb-3">
           <div>
             <div className="text-[#888] text-xs mb-0.5">總成本</div>
-            <div className="text-white text-sm font-medium">{mask('28,416')}</div>
+            <div className="text-white text-sm font-medium">{mask(grandCost.toLocaleString())}</div>
           </div>
           <div>
             <div className="text-[#888] text-xs mb-0.5">不含息參考報酬 <span className="text-[#666]">ⓘ</span></div>
-            <div className="text-[#e84040] text-sm font-medium">{mask('+297,786')}</div>
+            <div className="text-[#e84040] text-sm font-medium">{mask(`+${grandPnl.toLocaleString()}`)}</div>
           </div>
         </div>
         {/* 台股/海外分配條 */}
         <div className="h-2 rounded-full overflow-hidden flex mb-1.5">
-          <div className="bg-[#4a9fd4]" style={{ width: '93.41%' }} />
-          <div className="bg-[#2dba6a]" style={{ width: '6.59%' }} />
+          <div className="bg-[#4a9fd4]" style={{ width: `${twAllocPct}%` }} />
+          <div className="bg-[#2dba6a]" style={{ width: `${usAllocPct}%` }} />
         </div>
         <div className="flex gap-4 text-xs">
-          <span><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#4a9fd4] mr-1 align-middle" />台 <span className="text-[#4a9fd4]">93.41%</span></span>
-          <span><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#2dba6a] mr-1 align-middle" />海外股 <span className="text-[#2dba6a]">6.59%</span></span>
+          <span><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#4a9fd4] mr-1 align-middle" />台 <span className="text-[#4a9fd4]">{twAllocPct}%</span></span>
+          <span><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#2dba6a] mr-1 align-middle" />海外股 <span className="text-[#2dba6a]">{usAllocPct}%</span></span>
         </div>
       </div>
 
@@ -235,12 +261,12 @@ function OverviewTab({ hideAmt, onToggleHide }: { hideAmt: boolean; onToggleHide
         </div>
         <DonutCard
           currency="TWD"
-          amount={mask('304,719')}
-          pctLabel={mask('+4251.89%')}
+          amount={mask(twTotal.toLocaleString())}
+          pctLabel={mask(`+${twPnlPct.toFixed(2)}%`)}
           pie={twPie}
           legend={twPie}
-          cost={mask('7,002')}
-          pnl={mask('+297,717')}
+          cost={mask(twCost.toLocaleString())}
+          pnl={mask(`+${twPnl.toLocaleString()}`)}
         />
         <button className="flex items-center gap-2 mt-3 text-[#2dba6a] text-xs">
           <Leaf size={14} />
@@ -269,13 +295,94 @@ function OverviewTab({ hideAmt, onToggleHide }: { hideAmt: boolean; onToggleHide
         </div>
         <DonutCard
           currency="USD"
-          amount={mask('685.25')}
-          pctLabel={mask('+0.32%')}
+          amount={mask(usMock.totalValueUSD.toFixed(2))}
+          pctLabel={mask(`+${usMock.pnlPct.toFixed(2)}%`)}
           pie={usPie}
           legend={usPie}
-          cost={mask('683.05')}
-          pnl={mask('+2.20')}
+          cost={mask(usMock.totalCostUSD.toFixed(2))}
+          pnl={mask(`+${usMock.pnlUSD.toFixed(2)}`)}
         />
+      </div>
+    </div>
+  )
+}
+
+/* ── 美股庫存 Tab ── */
+function USPortfolioTab({ hideAmt, onToggleHide }: { hideAmt: boolean; onToggleHide: () => void }) {
+  const fmt = (n: number) => hideAmt ? '****' : n.toFixed(2)
+
+  return (
+    <div className="px-3 pt-3 space-y-3">
+      {/* 庫存匯總卡 */}
+      <div className="bg-[#1e1e1e] rounded-[10px] p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-white text-sm font-medium">庫存匯總</span>
+            <button onClick={onToggleHide}>
+              <Eye size={16} className="text-[#666]" />
+            </button>
+          </div>
+          <button className="flex items-center gap-1.5 text-[#888] text-xs">
+            <RefreshCw size={13} />
+            不含息
+          </button>
+        </div>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-[#888]">總現值 (USD)</span>
+            <span className="text-white font-medium">{fmt(usMock.totalValueUSD)}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-[#888]">總成本</span>
+            <span className="text-white font-medium">{fmt(usMock.totalCostUSD)}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-[#888]">總損益 (不含息)</span>
+            <span className="text-[#e84040] font-medium">
+              {hideAmt ? '****' : `+${usMock.pnlUSD.toFixed(2)} (+${usMock.pnlPct.toFixed(2)}%)`}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 庫存列表 header */}
+      <div className="flex items-center justify-between px-1">
+        <span className="text-white text-sm font-medium">庫存列表</span>
+        <div className="flex items-center gap-3 text-[#2dba6a] text-xs">
+          <button>排序</button>
+          <span className="text-[#444]">|</span>
+          <button>看列表</button>
+        </div>
+      </div>
+
+      {/* 庫存列表 */}
+      <div className="space-y-0 divide-y divide-[#2e2e2e]">
+        {mockUSPortfolio.map((stock) => (
+          <div key={stock.id} className="py-3.5 px-1">
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2">
+                <span className="bg-[#4a9fd4] text-white text-[10px] px-2 py-0.5 rounded-full font-medium">
+                  {stock.type}
+                </span>
+                <span className="text-white text-sm font-medium">{stock.name}</span>
+                <span className="text-[#666] text-xs">{stock.id}</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[#888] text-xs">持股數量</span>
+              <button className="flex items-center gap-1 text-white text-sm font-medium underline decoration-dotted">
+                {stock.shares}
+                <ChevronDown size={14} className="text-[#666]" />
+              </button>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[#888] text-xs">總損益 (不含息)</span>
+              <span className="text-[#e84040] text-sm font-medium">
+                {hideAmt ? '****' : `+${stock.pnl.toFixed(2)} (+${stock.pnlPercent.toFixed(2)}%)`}
+              </span>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )

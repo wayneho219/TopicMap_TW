@@ -15,7 +15,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'tw_stock_list.sqlite3')
+DB_PATH       = os.path.join(os.path.dirname(__file__), '..', 'data', 'tw_stock_list.sqlite3')
+DB_CHAIN_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'tpex_industry_chain.sqlite3')
 
 MARKET_LABEL = {
     'TWSE_LISTED': '上市',
@@ -52,6 +53,202 @@ def _parse_volume(val) -> int:
         return int(float(str(val)))
     except ValueError:
         return 0
+
+SORT_MAP = {
+    'volume':      'volume DESC',
+    'turnover':    '(close_price * volume) DESC',
+    'price':       'close_price DESC',
+    'gain':        'CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL) DESC',
+    'loss':        'CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL) ASC',
+}
+
+MARKET_MAP = {
+    'listed': 'TWSE_LISTED',
+    'otc':    'TPEX_OTC',
+}
+
+@app.get('/api/market/hot')
+def get_market_hot(sort: str = 'volume', market: str = 'listed', limit: int = 10):
+    order = SORT_MAP.get(sort, SORT_MAP['volume'])
+    mkt   = MARKET_MAP.get(market, 'TWSE_LISTED')
+    conn  = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            f'''
+            SELECT stock_code, stock_name, close_price, change_val, change_pct, volume
+            FROM tw_stock_list
+            WHERE market = ? AND close_price IS NOT NULL AND volume > 0
+              AND stock_code NOT LIKE '0%'
+            ORDER BY {order}
+            LIMIT ?
+            ''',
+            (mkt, limit),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return [
+        {
+            'id':            r['stock_code'],
+            'name':          r['stock_name'],
+            'price':         float(r['close_price']),
+            'change':        _parse_float(r['change_val']),
+            'changePercent': _parse_float(r['change_pct']),
+            'volume':        _parse_volume(r['volume']),
+        }
+        for r in rows
+    ]
+
+
+@app.get('/api/market/search_hot')
+def get_search_hot(limit: int = 6):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            '''
+            SELECT stock_code, stock_name, close_price, change_val, change_pct
+            FROM tw_stock_list
+            WHERE market = 'TWSE_LISTED' AND close_price IS NOT NULL AND volume > 0
+              AND stock_code NOT LIKE '0%'
+            ORDER BY ABS(CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL)) DESC
+            LIMIT ?
+            ''',
+            (limit,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return [
+        {
+            'id':            r['stock_code'],
+            'name':          r['stock_name'],
+            'price':         float(r['close_price']),
+            'change':        _parse_float(r['change_val']),
+            'changePercent': _parse_float(r['change_pct']),
+        }
+        for r in rows
+    ]
+
+
+@app.get('/api/market/sectors')
+def get_sectors(market: str = 'listed', sort: str = 'change', order: str = 'desc'):
+    mkt = MARKET_MAP.get(market, 'TWSE_LISTED')
+    dir_ = 'ASC' if order == 'asc' else 'DESC'
+    col  = 'total_vol' if sort == 'volume' else 'avg_chg'
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            f'''
+            SELECT industry_name,
+                   COUNT(*) AS total,
+                   AVG(CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL)) AS avg_chg,
+                   SUM(CASE WHEN CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL) > 0 THEN 1 ELSE 0 END) AS up,
+                   SUM(CASE WHEN CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL) < 0 THEN 1 ELSE 0 END) AS dn,
+                   SUM(volume) AS total_vol
+            FROM tw_stock_list
+            WHERE market = ? AND close_price IS NOT NULL
+              AND change_pct IS NOT NULL AND change_pct != ""
+              AND stock_code NOT LIKE "0%"
+              AND industry_name IS NOT NULL AND industry_name != ""
+              AND industry_name NOT IN ("其他", "存託憑證")
+            GROUP BY industry_name
+            ORDER BY {col} {dir_}
+            ''',
+            (mkt,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return [
+        {
+            'name':          r['industry_name'],
+            'changePercent': round(r['avg_chg'] or 0, 2),
+            'advance':       r['up'],
+            'decline':       r['dn'],
+            'totalVolume':   r['total_vol'] or 0,
+        }
+        for r in rows
+    ]
+
+
+def _stock_rows_to_list(rows) -> list[dict]:
+    return [
+        {
+            'id':            r['stock_code'],
+            'name':          r['stock_name'],
+            'price':         float(r['close_price']) if r['close_price'] else 0.0,
+            'change':        _parse_float(r['change_val']),
+            'changePercent': _parse_float(r['change_pct']),
+            'volume':        _parse_volume(r['volume']),
+        }
+        for r in rows
+    ]
+
+
+def _sort_expr(sort: str, order: str) -> str:
+    dir_ = 'ASC' if order == 'asc' else 'DESC'
+    col  = ('volume' if sort == 'volume'
+            else f'CAST(REPLACE(REPLACE(change_pct,"+",""),"%","") AS REAL)')
+    return f'{col} {dir_}'
+
+
+@app.get('/api/market/sector/{name}/stocks')
+def get_sector_stocks(name: str, sort: str = 'change', order: str = 'desc'):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            f'''
+            SELECT stock_code, stock_name, close_price, change_val, change_pct, volume
+            FROM tw_stock_list
+            WHERE industry_name = ? AND close_price IS NOT NULL AND volume > 0
+              AND stock_code NOT LIKE "0%"
+            ORDER BY {_sort_expr(sort, order)}
+            ''',
+            (name,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return _stock_rows_to_list(rows)
+
+
+@app.get('/api/market/chain/{name}/stocks')
+def get_chain_stocks(name: str, sort: str = 'change', order: str = 'desc'):
+    chain_conn = sqlite3.connect(DB_CHAIN_PATH)
+    chain_conn.row_factory = sqlite3.Row
+    try:
+        chain_rows = chain_conn.execute(
+            'SELECT DISTINCT stock_code FROM tpex_industry_chain WHERE chain_topic = ?',
+            (name,),
+        ).fetchall()
+    finally:
+        chain_conn.close()
+
+    codes = [r['stock_code'] for r in chain_rows]
+    if not codes:
+        return []
+
+    placeholders = ','.join('?' * len(codes))
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            f'''
+            SELECT stock_code, stock_name, close_price, change_val, change_pct, volume
+            FROM tw_stock_list
+            WHERE stock_code IN ({placeholders})
+              AND close_price IS NOT NULL AND volume > 0
+            ORDER BY {_sort_expr(sort, order)}
+            ''',
+            codes,
+        ).fetchall()
+    finally:
+        conn.close()
+    return _stock_rows_to_list(rows)
+
 
 @app.get('/api/stocks/search')
 def search_stocks(q: str = ''):

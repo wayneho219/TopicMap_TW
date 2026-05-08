@@ -266,27 +266,6 @@ export const mockSectors: SectorItem[] = [
 ]
 
 // ── 個股概念群組 ──
-export const mockConceptGroups: Record<string, string[]> = {
-  '2330':  ['AI晶片', 'CoWoS供應鏈', 'HBM題材'],
-  '2454':  ['AI晶片', '無線通訊', '聯發科生態圈'],
-  '2317':  ['AI伺服器', 'GB200組裝', '蘋果供應鏈'],
-  '2344':  ['HBM記憶體', 'DRAM', 'AI相關'],
-  '3481':  ['面板', '車用顯示'],
-  '2308':  ['電源管理', '伺服器電源', 'AI供應鏈'],
-  '2382':  ['AI伺服器', 'ODM', '雲端基礎設施'],
-  '0050':  ['台股ETF', '指數型', '藍籌股'],
-  '0056':  ['高息ETF', '存股族最愛'],
-  '00878': ['高息ETF', 'ESG永續'],
-  '006208':['台股ETF', '指數型'],
-  'NVDA':  ['AI晶片', 'CUDA生態', '資料中心'],
-  'AAPL':  ['蘋果生態', '消費電子', '服務收入'],
-  'MSFT':  ['雲端運算', 'AI', 'Azure'],
-  'TSLA':  ['電動車', '自動駕駛', '儲能'],
-  'META':  ['社群媒體', 'AI廣告', 'AR/VR'],
-  'AMZN':  ['電商', 'AWS雲端', 'AI基礎設施'],
-  'GOOGL': ['搜尋廣告', 'Google Cloud', 'AI大模型'],
-}
-
 // ── 社群討論 ──
 export interface ForumPost {
   platform: 'PTT' | '股討區'

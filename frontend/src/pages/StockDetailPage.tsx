@@ -8,7 +8,10 @@ import {
   ComposedChart, BarChart, Line, Bar, XAxis, YAxis, CartesianGrid,
   ResponsiveContainer, ReferenceLine,
 } from 'recharts'
-import { mockChartData, mockConceptGroups, mockForumPosts } from '../data/mock'
+import { mockChartData, mockForumPosts } from '../data/mock'
+import conceptGroupsData from '../data/conceptGroups.json'
+
+const conceptGroups = conceptGroupsData as Record<string, string[]>
 import { useStock } from '../hooks/useStock'
 import { useWatchlist } from '../hooks/useWatchlist'
 import { useIntraday, type IntradayPoint } from '../hooks/useIntraday'
@@ -176,12 +179,16 @@ export function StockDetailPage() {
           </div>
 
           {/* 概念股群組標籤 */}
-          {(mockConceptGroups[id ?? ''] ?? []).length > 0 && (
+          {(conceptGroups[id ?? ''] ?? []).length > 0 && (
             <div className="flex gap-1.5 mb-3 flex-wrap">
-              {(mockConceptGroups[id ?? ''] ?? []).map((g) => (
-                <span key={g} className="bg-[#1a2e20] border border-[#2dba6a]/40 text-[#2dba6a] text-[11px] px-2 py-0.5 rounded-full">
+              {(conceptGroups[id ?? ''] ?? []).map((g) => (
+                <button
+                  key={g}
+                  onClick={() => navigate(`/chain/${encodeURIComponent(g)}`)}
+                  className="bg-[#1a2e20] border border-[#2dba6a]/40 text-[#2dba6a] text-[11px] px-2 py-0.5 rounded-full active:opacity-60"
+                >
                   # {g}
-                </span>
+                </button>
               ))}
             </div>
           )}
@@ -588,7 +595,7 @@ function CommunityTab({ id, isUp }: { id: string; isUp: boolean }) {
   const bullPct  = isUp ? 65 : 38
   const bearPct  = 100 - bullPct
   const posts    = mockForumPosts[id] ?? mockForumPosts.default
-  const keywords = (mockConceptGroups[id] ?? ['電子', '科技', '台股'])
+  const keywords = (conceptGroups[id] ?? ['電子', '科技', '台股'])
     .concat(['外資買超', '法說會', '技術面'])
     .slice(0, 6)
 

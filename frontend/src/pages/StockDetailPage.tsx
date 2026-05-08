@@ -5,12 +5,13 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import {
-  ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid,
+  ComposedChart, BarChart, Line, Bar, XAxis, YAxis, CartesianGrid,
   ResponsiveContainer, ReferenceLine,
 } from 'recharts'
 import { mockChartData } from '../data/mock'
 import { useStock } from '../hooks/useStock'
 import { useWatchlist } from '../hooks/useWatchlist'
+import { useIntraday, type IntradayPoint } from '../hooks/useIntraday'
 
 const chartTabs = ['K線', '五檔', '價量', '明細', '券商分點', '指標', '籌碼']
 const timeTabs = ['分時', '日', '週', '月']
@@ -97,6 +98,7 @@ export function StockDetailPage() {
   const [brokerTopTab, setBrokerTopTab] = useState(0)
   const { stock, loading, error } = useStock(id)
   const { isWatched, toggle } = useWatchlist(id)
+  const { data: intradayData, loading: intradayLoading } = useIntraday(id)
 
   if (loading) {
     return (
@@ -219,7 +221,7 @@ export function StockDetailPage() {
 
       {/* ── 捲動內容區 ── */}
       <div className="flex-1 overflow-y-auto pb-24">
-        {chartTab === 0 && <KLineTab timeTab={timeTab} setTimeTab={setTimeTab} prevClose={stock.prevClose ?? stock.price} />}
+        {chartTab === 0 && <KLineTab timeTab={timeTab} setTimeTab={setTimeTab} prevClose={stock.prevClose ?? stock.price} intradayData={intradayData} intradayLoading={intradayLoading} />}
         {chartTab === 1 && <OrderBookTab />}
         {chartTab === 2 && <VolumePriceTab />}
         {chartTab === 3 && <TradeDetailTab />}
@@ -370,12 +372,36 @@ function IndicatorsTab() {
 
 /* ── K線 Tab ── */
 function KLineTab({
-  timeTab, setTimeTab, prevClose,
+  timeTab, setTimeTab, prevClose, intradayData, intradayLoading,
 }: {
   timeTab: number
   setTimeTab: (i: number) => void
   prevClose: number
+  intradayData: IntradayPoint[]
+  intradayLoading: boolean
 }) {
+  const chartData = timeTab === 0
+    ? (intradayData.length > 0 ? intradayData : mockChartData)
+    : mockChartData
+
+  const prices = chartData.map((d) => d.price)
+  const minP = prices.length ? Math.min(...prices) : prevClose * 0.95
+  const maxP = prices.length ? Math.max(...prices) : prevClose * 1.05
+  const pad = Math.max(maxP - minP, prevClose * 0.005) * 0.3
+  const priceDomain: [number, number] = [
+    Math.floor((minP - pad) * 100) / 100,
+    Math.ceil((maxP + pad) * 100) / 100,
+  ]
+  const maxVol = Math.max(...chartData.map((d) => d.volume || 0), 1)
+  const volDomain: [number, number] = [0, maxVol * 4]
+  const pctTickFormatter = (v: number) => {
+    const pct = (v - prevClose) / prevClose * 100
+    return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`
+  }
+
+  const last = chartData[chartData.length - 1]
+  const isUp = last ? last.pct >= 0 : true
+
   return (
     <>
       <div className="flex items-center px-3 py-2 gap-2">
@@ -399,26 +425,46 @@ function KLineTab({
         </button>
       </div>
 
-      <div className="flex items-center gap-3 px-3 pb-1 text-xs">
-        <span className="text-[#888]">13:30</span>
-        <span className="text-[#aaa]">價：<span className="text-[#e84040]">97.70</span></span>
-        <span className="text-[#e84040]">▲1.95(2.04%)</span>
-        <span className="text-[#aaa]">量：<span className="text-[#2dba6a]">132</span></span>
-      </div>
-
-      <div className="px-1" style={{ height: 260 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={mockChartData} margin={{ top: 4, right: 44, left: 4, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
-            <XAxis dataKey="time" tick={{ fill: '#666', fontSize: 10 }} tickLine={false} axisLine={false} interval={3} />
-            <YAxis yAxisId="price" orientation="left" domain={[93, 98.8]} tick={{ fill: '#666', fontSize: 10 }} tickLine={false} axisLine={false} tickCount={5} tickFormatter={(v) => v.toFixed(2)} width={44} />
-            <YAxis yAxisId="pct" orientation="right" domain={[-3.2, 3.2]} tick={{ fill: '#666', fontSize: 10 }} tickLine={false} axisLine={false} tickCount={5} tickFormatter={(v) => `${v > 0 ? '+' : ''}${v.toFixed(1)}%`} width={44} />
-            <ReferenceLine yAxisId="price" y={prevClose} stroke="#555" strokeDasharray="4 2" />
-            <Bar yAxisId="pct" dataKey="volume" fill="#c8a020" opacity={0.7} maxBarSize={6} />
-            <Line yAxisId="price" type="monotone" dataKey="price" stroke="#e84040" strokeWidth={1.5} dot={false} activeDot={{ r: 3, fill: '#e84040' }} />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
+      {timeTab === 0 && intradayLoading ? (
+        <div className="flex items-center justify-center" style={{ height: 280 }}>
+          <div className="w-6 h-6 rounded-full border-2 border-[#2dba6a] border-t-transparent animate-spin" />
+        </div>
+      ) : (
+        <>
+          {last && (
+            <div className="flex items-center gap-3 px-3 pb-1 text-xs">
+              <span className="text-[#888]">{last.time}</span>
+              <span className="text-[#aaa]">價：<span className={isUp ? 'text-[#e84040]' : 'text-[#2dba6a]'}>{last.price.toFixed(2)}</span></span>
+              <span className={isUp ? 'text-[#e84040]' : 'text-[#2dba6a]'}>
+                {isUp ? '▲' : '▼'}{Math.abs(last.price - prevClose).toFixed(2)}({Math.abs(last.pct).toFixed(2)}%)
+              </span>
+              <span className="text-[#aaa]">量：<span className="text-[#2dba6a]">{Math.round(last.volume / 1000)}</span></span>
+            </div>
+          )}
+          <div className="px-1">
+            {/* 價格線 */}
+            <ResponsiveContainer width="100%" height={200}>
+              <ComposedChart data={chartData} margin={{ top: 4, right: 44, left: 4, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
+                <XAxis dataKey="time" hide />
+                <YAxis orientation="left" domain={priceDomain} tick={{ fill: '#666', fontSize: 10 }} tickLine={false} axisLine={false} tickCount={5} tickFormatter={(v) => v.toFixed(0)} width={44} />
+                <YAxis yAxisId="pct" orientation="right" domain={priceDomain} tick={{ fill: '#666', fontSize: 10 }} tickLine={false} axisLine={false} tickCount={5} tickFormatter={pctTickFormatter} width={44} />
+                <ReferenceLine y={prevClose} stroke="#555" strokeDasharray="4 2" />
+                <Line yAxisId="pct" dataKey="price" stroke="transparent" dot={false} />
+                <Line type="monotone" dataKey="price" stroke="#e84040" strokeWidth={1.5} dot={false} activeDot={{ r: 3, fill: '#e84040' }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+            {/* 成交量 */}
+            <ResponsiveContainer width="100%" height={60}>
+              <BarChart data={chartData} margin={{ top: 0, right: 44, left: 4, bottom: 0 }}>
+                <XAxis dataKey="time" tick={{ fill: '#666', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.floor(chartData.length / 5)} />
+                <YAxis hide domain={[0, maxVol]} />
+                <Bar dataKey="volume" fill="#c8a020" opacity={0.8} maxBarSize={4} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      )}
     </>
   )
 }

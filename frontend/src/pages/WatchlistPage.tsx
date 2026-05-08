@@ -3,16 +3,22 @@ import { useNavigate } from 'react-router-dom'
 import { Search, ChevronDown, List, Pencil } from 'lucide-react'
 import { clsx } from 'clsx'
 import { StockCard } from '../components/StockCard'
-import { mockWatchlistTW, mockWatchlistUS, type WatchlistStock } from '../data/mock'
+import { mockWatchlistUS, type WatchlistStock } from '../data/mock'
+import { useStockPrices } from '../hooks/useMarketData'
 
 const STORAGE_KEY = 'watchlist_ids'
 const subTabs = ['台股庫存', '海外股票庫存', '行動自選1', '行動自選2']
+
+// Demo TW holdings — IDs only, prices fetched from API
+const DEMO_TW_IDS = ['0050', '2330', '2454', '2317']
 
 export function WatchlistPage() {
   const [subTab, setSubTab] = useState(0)
   const [watchlistStocks, setWatchlistStocks] = useState<WatchlistStock[]>([])
   const [watchlistLoading, setWatchlistLoading] = useState(false)
   const navigate = useNavigate()
+
+  const liveTW = useStockPrices(DEMO_TW_IDS)
 
   useEffect(() => {
     let ids: string[] = []
@@ -28,7 +34,9 @@ export function WatchlistPage() {
   }, [])
 
   const isActionTab = subTab >= 2
-  const stocks = isActionTab ? watchlistStocks : (subTab === 0 ? mockWatchlistTW : mockWatchlistUS)
+  const stocks = isActionTab ? watchlistStocks
+               : subTab === 0 ? liveTW
+               : mockWatchlistUS
 
   return (
     <div className="flex flex-col bg-[#111111] h-screen">

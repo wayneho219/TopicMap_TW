@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Trash2, Plus, ChevronRight } from 'lucide-react'
 import { clsx } from 'clsx'
-import { mockRecentSearches, mockTop30 } from '../data/mock'
+import { mockRecentSearches } from '../data/mock'
+import { useMarketHot } from '../hooks/useMarketData'
 
 interface SearchResult {
   id: string
@@ -35,6 +36,7 @@ export function StockSearchPage() {
   const [results, setResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const navigate = useNavigate()
+  const { stocks: top30 } = useMarketHot(0, 0, 'all')
 
   useEffect(() => {
     if (!query.trim()) { setResults([]); return }
@@ -209,7 +211,7 @@ export function StockSearchPage() {
               </div>
 
               <div className="divide-y divide-[#f0f0f0]">
-                {mockTop30.map((s) => {
+                {top30.map((s) => {
                   const up = s.change >= 0
                   return (
                     <button

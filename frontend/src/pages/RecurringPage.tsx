@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, ChevronRight, MessageSquare } from 'lucide-react'
 import { clsx } from 'clsx'
-import { mockRecurringTW, mockRecurringUS, type RecurringStock } from '../data/mock'
+import { mockRecurringUS, type RecurringStock } from '../data/mock'
+import { useRecurringTW } from '../hooks/useMarketData'
 
 const twPills = ['人氣爆棚', '月月配息', '高殖利率', '火熱上架']
 const usPills = ['人氣爆棚', '標的總覽', '績優標的', '火熱上架']
@@ -14,11 +15,17 @@ export function RecurringPage() {
   const [pill, setPill]         = useState(0)
   const navigate = useNavigate()
 
+  const rawTW = useRecurringTW()
+  const liveTW: RecurringStock[] = rawTW.map((s) => ({
+    rank: s.rank, id: s.id, name: s.name, price: s.price,
+    type: 'ETF', metric: s.changePercent, metricIsYield: false,
+  }))
+
   const isTW    = mainTab === 0
   const pills   = isTW ? twPills : usPills
-  const stocks  = isTW ? mockRecurringTW : mockRecurringUS
-  const col1    = isTW ? '收盤價' : '參考價'
-  const col2    = isTW ? '殖利率' : '漲跌幅(月)'
+  const stocks  = isTW ? liveTW : mockRecurringUS
+  const col1    = '收盤價'
+  const col2    = isTW ? '漲跌幅' : '漲跌幅(月)'
 
   return (
     <div className="flex flex-col bg-white h-screen">

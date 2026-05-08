@@ -23,18 +23,23 @@ export function MarketPage() {
   const [toggle, setToggle] = useState(0)
   const navigate = useNavigate()
 
-  const isTW = subTab === 0 || subTab === 2
+  const isTW      = subTab === 0 || subTab === 2
   const isTWStock = subTab === 0
+  const isTWETF   = subTab === 2
 
-  const liveHot    = useMarketHot(sortTab, toggle)
-  const liveSearch = useSearchHot()
+  const liveHot       = useMarketHot(sortTab, toggle, 'stock')
+  const liveSearch    = useSearchHot('stock')
+  const liveETFHot    = useMarketHot(sortTab, 0, 'etf')
+  const liveETFSearch = useSearchHot('etf')
 
   const indices   = subTab === 0 ? mockIndices      : subTab === 1 ? mockIndicesUS
                   : subTab === 2 ? mockIndicesETFTW  : mockIndicesETFUS
-  const hotSearch = isTWStock ? liveSearch  : subTab === 1 ? mockHotSearchUS
-                  : subTab === 2 ? mockHotSearchETFTW : mockHotSearchETFUS
-  const hotMarket = isTWStock ? liveHot.stocks : subTab === 1 ? mockHotMarketUS
-                  : subTab === 2 ? mockHotMarketETFTW : mockHotMarketETFUS
+  const hotSearch = isTWStock ? liveSearch
+                  : isTWETF   ? liveETFSearch
+                  : subTab === 1 ? mockHotSearchUS : mockHotSearchETFUS
+  const hotMarket = isTWStock ? liveHot.stocks
+                  : isTWETF   ? liveETFHot.stocks
+                  : subTab === 1 ? mockHotMarketUS : mockHotMarketETFUS
 
   return (
     <div className="flex flex-col bg-[#111111] h-screen">

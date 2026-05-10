@@ -47,13 +47,13 @@ from scipy.spatial.distance import pdist
 # STEP 1 ── DOCUMENTS + 產業分類 JOIN
 # ══════════════════════════════════════════════════════════════════════════════
 print("STEP 1 | 載入資料 + 產業分類 JOIN")
-df = pd.read_csv("articles.csv", encoding="utf-8-sig", parse_dates=["ArticleCreateTime"])
+df = pd.read_csv("data/articles.csv", encoding="utf-8-sig", parse_dates=["ArticleCreateTime"])
 df = df.dropna(subset=["ArticleText"])
 df["ArticleText"] = df["ArticleText"].astype(str).str.strip()
 df["stock_id"] = df["stock_id"].astype(str)
 
 # 從 tw_stocks.csv 取得產業分類（第一階層）
-stocks_df = pd.read_csv("tw_stocks.csv", encoding="utf-8-sig", dtype={"stock_code": str})
+stocks_df = pd.read_csv("data/tw_stocks.csv", encoding="utf-8-sig", dtype={"stock_code": str})
 industry_map = stocks_df.set_index("stock_code")["industry_name"].to_dict()
 df["industry_name"] = df["stock_id"].map(industry_map).fillna("其他")
 
@@ -282,6 +282,64 @@ elif PHASE == "label":
         fig.write_html(f"tsne_{level}.html", include_mathjax=False)
         print(f"  tsne_{level}.html")
 
+    # ── 載入股票價格和成交量（使用 yfinance）─────────────────────────────────────────
+    import yfinance as yf
+
+    df["close_price"] = None
+    df["volume"] = None
+    df["invested_amount"] = None
+
+    # 快取股票資料以避免重複查詢
+    stock_cache: dict[str, pd.DataFrame] = {}
+
+    print("  正在抓取股票價格和成交量資料...")
+    unique_stocks = df["stock_id"].unique()
+
+    for stock_id in unique_stocks:
+        try:
+            # 台灣股票代碼格式：XXXX.TW
+            ticker = f"{str(stock_id).zfill(4)}.TW"
+
+            # 使用 Ticker 物件取得歷史資料（避免 websocket 問題）
+            tick = yf.Ticker(ticker)
+            hist = tick.history(period="2y")
+
+            if not hist.empty:
+                stock_cache[str(stock_id)] = hist
+                print(f"    [OK] {ticker}")
+        except Exception as e:
+            print(f"    [ERR] {ticker} - {type(e).__name__}")
+
+    # 為每篇文章填入對應日期的股價和成交量
+    for idx, row in df.iterrows():
+        stock_id = str(row["stock_id"])
+        article_date = pd.to_datetime(row["ArticleCreateTime"]).date()
+
+        if stock_id in stock_cache:
+            hist = stock_cache[stock_id]
+
+            # 找最接近的交易日（向前查找）
+            valid_dates = hist.index[hist.index.notna()]
+            matching_dates = valid_dates[valid_dates.to_series().dt.date <= article_date]
+            if len(matching_dates) > 0:
+                closest_date = matching_dates[-1]
+                close_price = hist.loc[closest_date, "Close"]
+                volume = hist.loc[closest_date, "Volume"]
+
+                df.at[idx, "close_price"] = float(close_price)
+                df.at[idx, "volume"] = int(volume)
+
+                if close_price is not None and volume is not None and volume > 0:
+                    df.at[idx, "invested_amount"] = float(close_price) * int(volume)
+
+    print("  已完成股票價格和成交量資料抓取")
+
+    # ── 完整結果 ─────────────────────────────────────────────────────────────
+    out_cols = ["stock_id", "industry_name", "ArticleCreateTime", "close_price", "volume", "invested_amount",
+                "label_medium", "label_fine"]
+    df[out_cols].to_csv("result_all.csv", encoding="utf-8-sig", index=False)
+    print("  result_all.csv")
+
     # ── 各層主題統計 CSV ─────────────────────────────────────────────────────
     for level in ["medium", "fine"]:
         stat = (
@@ -295,11 +353,19 @@ elif PHASE == "label":
         )
         print(f"  topics_{level}.csv")
 
-    # ── 完整結果 ─────────────────────────────────────────────────────────────
-    out_cols = ["stock_id", "industry_name", "ArticleCreateTime",
-                "label_medium", "label_fine"]
-    df[out_cols].to_csv("result_all.csv", encoding="utf-8-sig", index=False)
-    print("  result_all.csv")
+    # ── 各層主題投入金額統計 CSV ────────────────────────────────────────────
+    for level in ["medium", "fine"]:
+        invested_stat = (
+            df.groupby(f"label_{level}")["invested_amount"].sum()
+            .fillna(0)
+            .sort_values(ascending=False)
+            .to_frame("總投入金額")
+        )
+        invested_stat.index.name = f"主題({level})"
+        invested_stat.to_csv(
+            f"invested_amount_{level}.csv", encoding="utf-8-sig"
+        )
+        print(f"  invested_amount_{level}.csv")
 
     # ══════════════════════════════════════════════════════════════════════════
     # 樹狀圓餅圖
@@ -399,92 +465,3 @@ elif PHASE == "label":
     fig_sb.write_html("tree_sunburst.html", include_mathjax=False)
     print("  tree_sunburst.html")
 
-    # ── Treemap（矩形樹圖） ──────────────────────────────────────────────────
-    fig_tm = go.Figure(go.Treemap(
-        ids=_ids,
-        labels=_labels,
-        parents=_parents,
-        values=_values,
-        marker=dict(colors=_colors),
-        branchvalues="total",
-        textinfo="label+value",
-        hovertemplate="<b>%{label}</b><br>文章數: %{value}<br>占比: %{percentParent:.1%}<extra></extra>",
-    ))
-    fig_tm.update_layout(
-        title="台股新聞主題 Treemap（產業 → 中主題 → 細主題）",
-        width=1400, height=900,
-        margin=dict(t=50, l=10, r=10, b=10),
-    )
-    fig_tm.write_html("tree_treemap.html", include_mathjax=False)
-    print("  tree_treemap.html")
-
-    # ── Icicle（橫向層次圖） ─────────────────────────────────────────────────
-    fig_ic = go.Figure(go.Icicle(
-        ids=_ids,
-        labels=_labels,
-        parents=_parents,
-        values=_values,
-        marker=dict(colors=_colors),
-        branchvalues="total",
-        tiling=dict(orientation="v", pad=3),
-        textfont=dict(size=13),
-        hovertemplate="<b>%{label}</b><br>文章數: %{value}<br>占比: %{percentParent:.1%}<extra></extra>",
-    ))
-    fig_ic.update_layout(
-        title="台股新聞主題層次圖（產業 → 中主題 → 細主題）",
-        width=1400, height=900,
-        margin=dict(t=50, l=10, r=10, b=10),
-    )
-    fig_ic.write_html("tree_icicle.html", include_mathjax=False)
-    print("  tree_icicle.html")
-
-    # ── Dendrogram ───────────────────────────────────────────────────────────
-    if os.path.exists("_linkage.npy"):
-        from scipy.cluster.hierarchy import dendrogram as scipy_dendrogram
-
-        Z_loaded = np.load("_linkage.npy")
-        ddata = scipy_dendrogram(Z_loaded, truncate_mode="lastp", p=60, no_plot=True)
-
-        shapes_x, shapes_y = [], []
-        for xs, ys in zip(ddata["icoord"], ddata["dcoord"]):
-            shapes_x += xs + [None]
-            shapes_y += ys + [None]
-
-        leaf_positions = sorted(set(
-            v for xs, ys in zip(ddata["icoord"], ddata["dcoord"])
-            for v, y in zip(xs, ys) if y == 0.0
-        ))
-
-        fig_dend = go.Figure()
-        fig_dend.add_trace(go.Scatter(
-            x=shapes_x, y=shapes_y,
-            mode="lines",
-            line=dict(color="#4C78A8", width=1.2),
-            hoverinfo="skip",
-        ))
-        fig_dend.update_layout(
-            title="Ward Hierarchical Clustering Dendrogram（top 60 nodes）",
-            xaxis=dict(
-                tickmode="array",
-                tickvals=leaf_positions,
-                ticktext=ddata["ivl"],
-                tickangle=-60,
-                tickfont=dict(size=10),
-            ),
-            yaxis=dict(title="Distance"),
-            width=1400, height=650,
-            plot_bgcolor="white",
-            showlegend=False,
-        )
-        fig_dend.write_html("dendrogram.html", include_mathjax=False)
-        print("  dendrogram.html")
-
-    print("\n完成 Phase 2！")
-    print("\n輸出檔案：")
-    print("  tree_sunburst.html  ← 樹狀圓餅圖（產業 → 中主題 → 細主題）")
-    print("  tree_treemap.html   ← 矩形樹圖")
-    print("  tree_icicle.html    ← 層次圖")
-    print("  tsne_industry.html  ← T-SNE 散點（產業顏色）")
-    print("  tsne_medium.html    ← T-SNE 散點（medium 主題顏色）")
-    print("  tsne_fine.html      ← T-SNE 散點（fine 主題顏色）")
-    print("  result_all.csv      ← 完整分群結果")

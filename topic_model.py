@@ -318,8 +318,8 @@ elif PHASE == "label":
             hist = yf.Ticker(ticker).history(period="2y")
             if not hist.empty:
                 _stock_cache[str(sid)] = hist
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  警告：{ticker} 股價抓取失敗: {e}")
 
     for idx, row in df.iterrows():
         sid = str(row["stock_id"])
@@ -332,6 +332,8 @@ elif PHASE == "label":
         if len(matching) == 0:
             continue
         closest = matching[-1]
+        if pd.isna(hist.loc[closest, "Close"]) or pd.isna(hist.loc[closest, "Volume"]):
+            continue
         cp = float(hist.loc[closest, "Close"])
         vol = int(hist.loc[closest, "Volume"])
         df.at[idx, "close_price"] = cp

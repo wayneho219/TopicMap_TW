@@ -11,6 +11,7 @@ import { RecurringPage } from './pages/RecurringPage'
 import { RecurringSubscribeUSPage } from './pages/RecurringSubscribeUSPage'
 import { RecurringSubscribeTWPage } from './pages/RecurringSubscribeTWPage'
 import { SectorDetailPage } from './pages/SectorDetailPage'
+import { TopicDetailPage } from './pages/TopicDetailPage'
 
 function Layout() {
   const location = useLocation()
@@ -36,6 +37,7 @@ function Layout() {
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/sector/:name" element={<SectorDetailPage kind="sector" />} />
         <Route path="/chain/:name" element={<SectorDetailPage kind="chain" />} />
+        <Route path="/topic/:level/:name" element={<TopicDetailPage />} />
       </Routes>
       {!hideBottomNav && <BottomNav />}
     </div>

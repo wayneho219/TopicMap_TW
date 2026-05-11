@@ -216,6 +216,10 @@ def fetch_and_process_ptt(
                 content = _get_article_content(url)
                 time.sleep(0.3)
 
+                title = art["title"]
+                if any(sw in title for sw in STOPWORDS):
+                    continue
+
                 batch.append({
                     "stock_id":          stock_id,
                     "ArticleTitle":      art["title"],

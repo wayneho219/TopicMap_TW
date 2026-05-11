@@ -20,7 +20,8 @@ function Layout() {
     location.pathname === '/order' ||
     location.pathname.startsWith('/subscribe/') ||
     location.pathname.startsWith('/sector/') ||
-    location.pathname.startsWith('/chain/')
+    location.pathname.startsWith('/chain/') ||
+    location.pathname.startsWith('/topic/')
 
   return (
     <div className="relative">

@@ -3,8 +3,8 @@ type: entity
 title: 主題標籤 v1（2026-05）
 tags: [topic-modeling, taiwan-stock, concept-stock]
 created: 2026-05-05
-updated: 2026-05-05
-sources: [pipeline-current-state]
+updated: 2026-05-11
+sources: [pipeline-current-state, nlp-topic-integration-impl-2026-05-11]
 ---
 
 # 主題標籤 v1（2026-05）
@@ -65,4 +65,13 @@ sources: [pipeline-current-state]
 - 財務公告類主題（月營收、財報、股利）佔比最高，來自公開資訊觀測站轉貼
 - 真正有分析價值的概念股討論集中在 fine 主題 1、11、16、23、29
 - 雜訊主題（12、19、25）應在後續過濾層排除
-- 尚未與行情資料（漲跌幅、成交量）結合，無法判斷哪些主題與實際資金流向相關
+
+## DB 整合狀態（2026-05-11）
+
+主題標籤已透過 `scripts/import_nlp_topics.py` 匯入 `tw_stock_list.sqlite3`：
+- `nlp_topics` 表：25 medium + 60 fine = **85 筆**
+- `nlp_topic_stocks` 表：主題 × 股票關聯（medium + fine 各一組）
+- 每個主題攜帶 `total_invested`（yfinance 收盤價 × 成交量，以新台幣計）
+- 最熱門 medium 主題（按投入金額排序）可透過 `GET /api/topics?level=medium` 查詢
+
+可推算的方向：`total_invested` 作為市場資金「話題熱度 × 流動性」的代理指標，已初步可用。

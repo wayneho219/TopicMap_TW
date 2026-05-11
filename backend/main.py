@@ -448,3 +448,105 @@ def get_stock(stock_id: str):
         'prevClose': prev_close,
         'open': _opt_float(row['open_price']),
     }
+
+
+# ── NLP 主題 API ──────────────────────────────────────────────────────────────
+
+def _topic_row(r) -> dict:
+    return {
+        'id':           r['id'],
+        'name':         r['name'],
+        'level':        r['level'],
+        'parentId':     r['parent_id'],
+        'totalInvested': r['total_invested'],
+        'articleCount': r['article_count'],
+        'stockCount':   r['stock_count'],
+    }
+
+
+@app.get('/api/topics')
+def get_topics(level: str = 'medium'):
+    if level not in ('medium', 'fine'):
+        raise HTTPException(status_code=400, detail='level must be medium or fine')
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            'SELECT id, name, level, parent_id, total_invested, article_count, stock_count '
+            'FROM nlp_topics WHERE level = ? ORDER BY total_invested DESC',
+            (level,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [_topic_row(r) for r in rows]
+
+
+@app.get('/api/topics/{name}/children')
+def get_topic_children(name: str):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        parent = conn.execute(
+            "SELECT id FROM nlp_topics WHERE name = ? AND level = 'medium'", (name,)
+        ).fetchone()
+        if parent is None:
+            raise HTTPException(status_code=404, detail='Topic not found')
+        rows = conn.execute(
+            'SELECT id, name, level, parent_id, total_invested, article_count, stock_count '
+            'FROM nlp_topics WHERE parent_id = ? ORDER BY total_invested DESC',
+            (parent['id'],),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [_topic_row(r) for r in rows]
+
+
+_TOPIC_SORT: dict[str, str] = {
+    'change': 'CAST(REPLACE(REPLACE(s.change_pct,"+",""),"%","") AS REAL)',
+    'volume': 's.volume',
+    'heat':   'ts.article_count',
+}
+
+
+@app.get('/api/topics/{name}/stocks')
+def get_topic_stocks(name: str, level: str = 'medium',
+                     sort: str = 'heat', order: str = 'desc'):
+    if level not in ('medium', 'fine'):
+        raise HTTPException(status_code=400, detail='level must be medium or fine')
+    sort_col = _TOPIC_SORT.get(sort, _TOPIC_SORT['heat'])
+    dir_ = 'ASC' if order == 'asc' else 'DESC'
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        topic = conn.execute(
+            'SELECT id FROM nlp_topics WHERE name = ? AND level = ?', (name, level)
+        ).fetchone()
+        if topic is None:
+            raise HTTPException(status_code=404, detail='Topic not found')
+        rows = conn.execute(
+            f'''
+            SELECT s.stock_code, s.stock_name, s.close_price,
+                   s.change_val, s.change_pct, s.volume,
+                   ts.article_count, ts.total_invested
+            FROM nlp_topic_stocks ts
+            JOIN tw_stock_list s ON s.stock_code = ts.stock_code
+            WHERE ts.topic_id = ? AND s.close_price IS NOT NULL
+            ORDER BY {sort_col} {dir_}
+            ''',
+            (topic['id'],),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [
+        {
+            'id':            r['stock_code'],
+            'name':          r['stock_name'],
+            'price':         float(r['close_price']),
+            'change':        _parse_float(r['change_val']),
+            'changePercent': _parse_float(r['change_pct']),
+            'volume':        _parse_volume(r['volume']),
+            'articleCount':  r['article_count'],
+            'topicInvested': r['total_invested'],
+        }
+        for r in rows
+    ]

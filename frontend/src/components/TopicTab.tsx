@@ -2,7 +2,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
-import { useTopics, useTopicChildren, Topic } from '../hooks/useTopics'
+import { useTopics, useTopicChildren } from '../hooks/useTopics'
+import type { Topic } from '../hooks/useTopics'
 
 function fmtInvested(n: number): string {
   if (n >= 1e8) return `${(n / 1e8).toFixed(0)}億`

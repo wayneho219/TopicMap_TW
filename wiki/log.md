@@ -18,3 +18,7 @@
 ## [2026-05-05] ingest | 架構分析 → concepts/eventcorr-pipeline.md（資料流 + 技術棧）
 ## [2026-05-05] ingest | 雜訊過濾分析 → sources/noise-filter-analysis.md（filter.py 322 篇，誤分類發現）
 ## [2026-05-06] ingest | dashboard.py 設計完成 → docs/superpowers/specs/2026-05-06-dashboard-design.md
+## [2026-05-11] ingest | NLP 主題整合實作 → sources/nlp-topic-integration-impl-2026-05-11.md（yfinance + DB import + API + 前端，29 測試通過）
+## [2026-05-11] update | concepts/eventcorr-pipeline.md — 資料流更新至含 nlp_topics DB + 前端
+## [2026-05-11] update | entities/topic-labels-v1.md — 加入 DB 整合狀態與 invested_amount 說明
+## [2026-05-11] ingest | concepts/nlp-topic-api.md 新增（端點規格 + 前端架構）

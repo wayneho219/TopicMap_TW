@@ -3,7 +3,8 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ArrowDown, ArrowUp } from 'lucide-react'
 import { clsx } from 'clsx'
-import { useTopicStocks, TopicSortKey } from '../hooks/useTopics'
+import { useTopicStocks } from '../hooks/useTopics'
+import type { TopicSortKey } from '../hooks/useTopics'
 
 const SORT_TABS = ['漲跌幅', '成交量', '討論熱度'] as const
 const SORT_KEYS: TopicSortKey[] = ['change', 'volume', 'heat']

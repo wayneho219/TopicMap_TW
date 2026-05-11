@@ -12,6 +12,7 @@ import {
   mockIndicesETFUS, mockHotSearchETFUS, mockHotMarketETFUS,
 } from '../data/mock'
 import { useMarketHot, useSearchHot, useSectors } from '../hooks/useMarketData'
+import { TopicTab } from '../components/TopicTab'
 
 const marketSubTabs = ['台股', '美股', '台股ETF', '美股ETF', '類股']
 const hotSortTabs = ['成交量', '成交值', '成交價', '漲幅', '跌幅']
@@ -192,6 +193,7 @@ type SectorOrder = 'asc' | 'desc'
 /* ── 類股 Tab ── */
 function SectorTab() {
   const navigate = useNavigate()
+  const [view, setView] = useState<'sector' | 'topic'>('sector')
   const [sortIdx, setSortIdx] = useState(0)
   const [order, setOrder] = useState<SectorOrder>('desc')
 
@@ -214,67 +216,89 @@ function SectorTab() {
 
   return (
     <div className="px-3 pt-3 pb-6">
-      {/* Sort tabs */}
-      <div className="flex border-b border-[#2e2e2e] mb-3">
-        {sectorSortTabs.map((t, i) => (
+      {/* 類股 / 主題 toggle */}
+      <div className="flex gap-2 mb-3">
+        {(['sector', 'topic'] as const).map((v) => (
           <button
-            key={t}
-            onClick={() => handleSortTab(i)}
+            key={v}
+            onClick={() => setView(v)}
             className={clsx(
-              'flex items-center gap-1 mr-5 pb-2.5 text-sm font-medium relative',
-              i === sortIdx ? 'text-[#2dba6a]' : 'text-[#888]'
+              'px-4 py-1.5 text-sm rounded-full font-medium',
+              v === view ? 'bg-[#2dba6a] text-white' : 'bg-[#2a2a2a] text-[#888]',
             )}
           >
-            {t}
-            {i === sortIdx && <OrderIcon size={12} />}
-            {i === sortIdx && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#2dba6a] rounded-full" />
-            )}
+            {v === 'sector' ? '類股' : '主題'}
           </button>
         ))}
       </div>
 
-      <div className="space-y-2">
-        {sectors.map((sector) => {
-          const up   = sector.changePercent >= 0
-          const barW = Math.round(
-            (sort === 'change' ? Math.abs(sector.changePercent) : sector.totalVolume) / maxVal * 100
-          )
-          const rightVal = sort === 'change'
-            ? `${up ? '+' : ''}${sector.changePercent.toFixed(2)}%`
-            : `${(sector.totalVolume / 1e8).toFixed(1)}億`
+      {view === 'topic' ? (
+        <TopicTab />
+      ) : (
+        <>
+          {/* Sort tabs */}
+          <div className="flex border-b border-[#2e2e2e] mb-3">
+            {sectorSortTabs.map((t, i) => (
+              <button
+                key={t}
+                onClick={() => handleSortTab(i)}
+                className={clsx(
+                  'flex items-center gap-1 mr-5 pb-2.5 text-sm font-medium relative',
+                  i === sortIdx ? 'text-[#2dba6a]' : 'text-[#888]',
+                )}
+              >
+                {t}
+                {i === sortIdx && <OrderIcon size={12} />}
+                {i === sortIdx && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#2dba6a] rounded-full" />
+                )}
+              </button>
+            ))}
+          </div>
 
-          return (
-            <div
-              key={sector.name}
-              className="bg-[#1e1e1e] rounded-[10px] px-4 py-3 active:opacity-70 cursor-pointer"
-              onClick={() => navigate(`/sector/${encodeURIComponent(sector.name)}`)}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-white text-sm font-medium">{sector.name}</span>
-                <span className={clsx(
-                  'text-base font-bold',
-                  sort === 'change' ? (up ? 'text-[#e84040]' : 'text-[#2dba6a]') : 'text-[#aaa]'
-                )}>
-                  {rightVal}
-                </span>
-              </div>
-              <div className="h-1.5 bg-[#2e2e2e] rounded-full overflow-hidden mb-2">
+          <div className="space-y-2">
+            {sectors.map((sector) => {
+              const up   = sector.changePercent >= 0
+              const barW = Math.round(
+                (sort === 'change' ? Math.abs(sector.changePercent) : sector.totalVolume) / maxVal * 100,
+              )
+              const rightVal = sort === 'change'
+                ? `${up ? '+' : ''}${sector.changePercent.toFixed(2)}%`
+                : `${(sector.totalVolume / 1e8).toFixed(1)}億`
+
+              return (
                 <div
-                  className={clsx('h-full rounded-full',
-                    sort === 'change' ? (up ? 'bg-[#e84040]' : 'bg-[#2dba6a]') : 'bg-[#3a7bd5]'
-                  )}
-                  style={{ width: `${barW}%` }}
-                />
-              </div>
-              <div className="flex gap-3 text-xs text-[#666]">
-                <span className="text-[#e84040]">漲 {sector.advance}</span>
-                <span className="text-[#2dba6a]">跌 {sector.decline}</span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+                  key={sector.name}
+                  className="bg-[#1e1e1e] rounded-[10px] px-4 py-3 active:opacity-70 cursor-pointer"
+                  onClick={() => navigate(`/sector/${encodeURIComponent(sector.name)}`)}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-white text-sm font-medium">{sector.name}</span>
+                    <span className={clsx(
+                      'text-base font-bold',
+                      sort === 'change' ? (up ? 'text-[#e84040]' : 'text-[#2dba6a]') : 'text-[#aaa]',
+                    )}>
+                      {rightVal}
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-[#2e2e2e] rounded-full overflow-hidden mb-2">
+                    <div
+                      className={clsx('h-full rounded-full',
+                        sort === 'change' ? (up ? 'bg-[#e84040]' : 'bg-[#2dba6a]') : 'bg-[#3a7bd5]',
+                      )}
+                      style={{ width: `${barW}%` }}
+                    />
+                  </div>
+                  <div className="flex gap-3 text-xs text-[#666]">
+                    <span className="text-[#e84040]">漲 {sector.advance}</span>
+                    <span className="text-[#2dba6a]">跌 {sector.decline}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
     </div>
   )
 }

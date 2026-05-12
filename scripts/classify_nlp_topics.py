@@ -25,7 +25,7 @@ _SYSTEM = (
 def classify_topic(name: str) -> dict:
     resp = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=100,
+        max_tokens=150,
         system=_SYSTEM,
         messages=[{
             "role": "user",
@@ -35,37 +35,48 @@ def classify_topic(name: str) -> dict:
             ),
         }],
     )
-    return json.loads(resp.content[0].text)
+    raw = resp.content[0].text.strip()
+    # Strip markdown fences if present
+    if raw.startswith('```'):
+        raw = raw.split('```')[1]
+        if raw.startswith('json'):
+            raw = raw[4:]
+        raw = raw.strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {'is_industry': False, 'major_industry': None}
 
 
 def run() -> None:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    topics = conn.execute(
-        '''SELECT t.id, t.name FROM nlp_topics t
-           LEFT JOIN nlp_topic_industry_map m ON t.id = m.topic_id
-           WHERE t.level = 'fine' AND m.topic_id IS NULL'''
-    ).fetchall()
+    try:
+        topics = conn.execute(
+            '''SELECT t.id, t.name FROM nlp_topics t
+               LEFT JOIN nlp_topic_industry_map m ON t.id = m.topic_id
+               WHERE t.level = 'fine' AND m.topic_id IS NULL'''
+        ).fetchall()
 
-    now = datetime.now(timezone.utc).isoformat()
-    for topic in topics:
-        result = classify_topic(topic['name'])
-        conn.execute(
-            'INSERT OR REPLACE INTO nlp_topic_industry_map '
-            '(topic_id, is_industry, major_industry, classified_at) VALUES (?, ?, ?, ?)',
-            (
-                topic['id'],
-                1 if result.get('is_industry') else 0,
-                result.get('major_industry'),
-                now,
-            ),
-        )
-        conn.commit()
-        label = '產業' if result.get('is_industry') else '雜訊'
-        mapped = result.get('major_industry') or ''
-        print(f"  {topic['name']} → {label} {mapped}")
-
-    conn.close()
+        now = datetime.now(timezone.utc).isoformat()
+        for topic in topics:
+            result = classify_topic(topic['name'])
+            conn.execute(
+                'INSERT OR REPLACE INTO nlp_topic_industry_map '
+                '(topic_id, is_industry, major_industry, classified_at) VALUES (?, ?, ?, ?)',
+                (
+                    topic['id'],
+                    1 if result.get('is_industry') else 0,
+                    result.get('major_industry'),
+                    now,
+                ),
+            )
+            conn.commit()
+            label = '產業' if result.get('is_industry') else '雜訊'
+            mapped = result.get('major_industry') or ''
+            print(f"  {topic['name']} → {label} {mapped}")
+    finally:
+        conn.close()
 
 
 if __name__ == '__main__':

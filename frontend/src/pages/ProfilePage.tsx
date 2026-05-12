@@ -48,7 +48,7 @@ export function ProfilePage() {
         {/* Greeting + CTA */}
         <div className="flex items-center justify-between px-4 pb-4">
           <div>
-            <div className="text-white text-lg font-medium mb-1">嗨，何定為</div>
+            <div className="text-white text-lg font-medium mb-1">嗨，陳小明</div>
             <button className="flex items-center gap-1 text-white text-xs opacity-90">
               線上調升額度，一鍵申請
               <ChevronRight size={13} />

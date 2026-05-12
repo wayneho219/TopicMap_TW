@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, HelpCircle, Info } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -7,7 +7,6 @@ const tradeDays = [5, 15, 25]
 const returnYears = ['1年', '2年', '3年']
 
 export function RecurringSubscribeUSPage() {
-  const { id } = useParams()
   const navigate = useNavigate()
   const [tab, setTab]         = useState(0)   // 0=定額 1=定股
   const [amount, setAmount]   = useState(10)
@@ -58,7 +57,7 @@ export function RecurringSubscribeUSPage() {
         {/* Account Card */}
         <div className="bg-white mx-3 mt-2 rounded-[12px] px-4 py-3 border border-[#eee] flex items-center gap-2">
           <span className="bg-[#2dba6a] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">外幣</span>
-          <span className="text-[#444] text-sm">複委託-台北總公司 9835205</span>
+          <span className="text-[#444] text-sm">複委託-台中總公司 0067890</span>
         </div>
 
         {/* 定額 / 定股 Tab */}

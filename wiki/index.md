@@ -11,16 +11,18 @@
 ## Sources（來源）
 
 - [[sa-vision]] — SA.md：AI 投資決策室願景，零預算高自動化，整合輿情 × 行情的目標架構
-- [[pipeline-current-state]] — 2026-05-05 管線現況：三大斷層、已完成資料盤點、優先待辦
+- [[pipeline-current-state]] — 2026-05-05 管線現況：三大斷點、已完成資料盤點、優先待辦
 - [[noise-filter-analysis]] — 版規雜訊過濾分析：filter.py 攔截 322 篇，發現 topic model 誤分類問題
+- [[nlp-topic-integration-impl-2026-05-11]] — NLP 主題整合實作（2026-05-11）：yfinance + import_nlp_topics + /api/topics + TopicTab 前端全端串接
 
 ## Entities（實體）
 
-- [[topic-labels-v1]] — 主題標籤 v1（2026-05）：25 中層 + 60 細層，含分類觀察與雜訊標記
+- [[topic-labels-v1]] — 主題標籤 v1（2026-05）：25 中層 + 60 細層，已匯入 DB，含 invested_amount
 
 ## Concepts（概念）
 
-- [[eventcorr-pipeline]] — EventCorr 管線架構：資料流、技術棧、快取機制、已知問題
+- [[eventcorr-pipeline]] — EventCorr 管線架構：資料流、技術棧、快取機制、已知問題（已更新至 2026-05-11）
+- [[nlp-topic-api]] — NLP 主題 API + 前端整合：3 個端點、React hooks、TopicTab accordion 架構
 
 ## Synthesis（綜合分析）
 

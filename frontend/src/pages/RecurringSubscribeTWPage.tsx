@@ -1,12 +1,14 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Info, HelpCircle } from 'lucide-react'
 import { clsx } from 'clsx'
+import { useStock } from '../hooks/useStock'
 
-const pricePcts = ['>0%', '≥5%', '≥10%', '≥15%']
 
 export function RecurringSubscribeTWPage() {
   const navigate = useNavigate()
+  const { id } = useParams()
+  const { stock, loading } = useStock(id)
   const [payMethod, setPayMethod]     = useState(0)   // 0=現金 1=小樹點
   const [dividendOn, setDividendOn]   = useState(false)
   const [lowCheck, setLowCheck]       = useState(false)
@@ -36,20 +38,31 @@ export function RecurringSubscribeTWPage() {
         {/* 股票資訊卡 */}
         <div className="bg-white mx-3 mt-3 rounded-[12px] border border-[#eee] px-4 py-4">
           <div className="text-center mb-3">
-            <div className="text-[#1a1a1a] text-base font-semibold">(2301) 光寶科</div>
-            <div className="text-[#888] text-xs mt-0.5">收盤價 (05/07)</div>
-            <div className="text-[#1a1a1a] text-3xl font-bold mt-1">203.50</div>
+            {loading ? (
+              <div className="flex justify-center py-3">
+                <div className="w-5 h-5 rounded-full border-2 border-[#2dba6a] border-t-transparent animate-spin" />
+              </div>
+            ) : (
+              <>
+                <div className="text-[#1a1a1a] text-base font-semibold">
+                  ({stock?.id ?? id}) {stock?.name ?? '—'}
+                </div>
+                <div className="text-[#888] text-xs mt-0.5">收盤價（已收盤）</div>
+                <div className="text-[#1a1a1a] text-3xl font-bold mt-1">
+                  {stock ? stock.price.toFixed(2) : '—'}
+                </div>
+              </>
+            )}
           </div>
           <div className="flex border-t border-[#f0f0f0] pt-3">
             {[
-              { label: 'EPS', value: '1.66', sub: '(2026年Q1)' },
-              { label: '殖利率', value: '2.92%', sub: '(05/05)' },
-              { label: '股價淨值比', value: '4.40', sub: '(05/05)' },
+              { label: 'EPS', value: '—', sub: '' },
+              { label: '殖利率', value: '—', sub: '' },
+              { label: '股價淨值比', value: '—', sub: '' },
             ].map((item) => (
               <div key={item.label} className="flex-1 text-center">
                 <div className="text-[#888] text-xs">{item.label}</div>
                 <div className="text-[#1a1a1a] text-base font-bold mt-0.5">{item.value}</div>
-                <div className="text-[#aaa] text-[10px]">{item.sub}</div>
               </div>
             ))}
           </div>
@@ -57,7 +70,7 @@ export function RecurringSubscribeTWPage() {
 
         {/* 帳號 */}
         <div className="bg-white mx-3 mt-2 rounded-[12px] border border-[#eee] px-4 py-3">
-          <span className="text-[#444] text-sm">證券-台北總公司 9822896</span>
+          <span className="text-[#444] text-sm">證券-台中總公司 0012345</span>
         </div>
 
         {/* 申購表單 */}
@@ -141,7 +154,7 @@ export function RecurringSubscribeTWPage() {
           <div className="bg-white mx-0 px-4 py-3 border-b border-[#eee]">
             {/* 價格比較 */}
             <div className="flex items-center justify-between mb-3 pb-3 border-b border-[#f0f0f0]">
-              <span className="text-[#888] text-sm">收盤價 <span className="text-[#1a1a1a] font-medium">203.50</span></span>
+              <span className="text-[#888] text-sm">收盤價 <span className="text-[#1a1a1a] font-medium">{stock ? stock.price.toFixed(2) : '—'}</span></span>
               <span className="text-[#888] text-sm">季均價(05/07) <span className="text-[#1a1a1a] font-medium">163.38</span></span>
             </div>
 

@@ -106,7 +106,7 @@ export function OrderPage() {
             台股 <ChevronDown size={13} className="text-[#666]" />
           </button>
           <div className="flex-1 bg-[#2a2a2a] rounded-[8px] px-3 py-2.5 border border-[#3a3a3a]">
-            <span className="text-[#888] text-sm">台北總公司 9822896</span>
+            <span className="text-[#888] text-sm">台中總公司 0012345</span>
           </div>
         </div>
       </div>
@@ -360,7 +360,7 @@ export function OrderPage() {
               {[
                 ['交易方式', '現股買進盤中整張'],
                 ['委託條件', 'ROD - 當日有效單'],
-                ['下單帳號', '證券-台北總公司 9822896'],
+                ['下單帳號', '證券-台中總公司 0012345'],
               ].map(([k, v]) => (
                 <div key={k} className="flex gap-3 text-sm">
                   <span className="text-[#888] flex-shrink-0">{k}</span>

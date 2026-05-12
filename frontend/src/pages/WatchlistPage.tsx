@@ -1,18 +1,42 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, ChevronDown, List, Pencil } from 'lucide-react'
 import { clsx } from 'clsx'
 import { StockCard } from '../components/StockCard'
-import { mockWatchlistTW, mockWatchlistUS } from '../data/mock'
+import { mockWatchlistUS, type WatchlistStock } from '../data/mock'
+import { useStockPrices } from '../hooks/useMarketData'
 
+const STORAGE_KEY = 'watchlist_ids'
 const subTabs = ['台股庫存', '海外股票庫存', '行動自選1', '行動自選2']
+
+// Demo TW holdings — IDs only, prices fetched from API
+const DEMO_TW_IDS = ['0050', '2330', '2454', '2317']
 
 export function WatchlistPage() {
   const [subTab, setSubTab] = useState(0)
+  const [watchlistStocks, setWatchlistStocks] = useState<WatchlistStock[]>([])
+  const [watchlistLoading, setWatchlistLoading] = useState(false)
   const navigate = useNavigate()
 
+  const liveTW = useStockPrices(DEMO_TW_IDS)
+
+  useEffect(() => {
+    let ids: string[] = []
+    try { ids = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') } catch { ids = [] }
+    if (ids.length === 0) { setWatchlistStocks([]); return }
+    setWatchlistLoading(true)
+    Promise.all(ids.map(id => fetch(`/api/stocks/${id}`).then(r => r.ok ? r.json() : null)))
+      .then(results => {
+        setWatchlistStocks(results.filter(Boolean) as WatchlistStock[])
+        setWatchlistLoading(false)
+      })
+      .catch(() => setWatchlistLoading(false))
+  }, [])
+
   const isActionTab = subTab >= 2
-  const stocks = subTab <= 1 ? mockWatchlistTW : mockWatchlistUS
+  const stocks = isActionTab ? watchlistStocks
+               : subTab === 0 ? liveTW
+               : mockWatchlistUS
 
   return (
     <div className="flex flex-col bg-[#111111] h-screen">
@@ -71,7 +95,7 @@ export function WatchlistPage() {
 
         {/* Account Selector */}
         <div className="flex items-center justify-between mx-3 my-2.5 bg-[#1e1e1e] rounded-[8px] px-3 py-2.5">
-          <span className="text-[#aaa] text-sm">證券-台北總公司 9822896</span>
+          <span className="text-[#aaa] text-sm">證券-台中總公司 0012345</span>
           <List size={18} className="text-[#666]" />
         </div>
 
@@ -92,16 +116,27 @@ export function WatchlistPage() {
 
       {/* ── 捲動內容區 ── */}
       <div className="flex-1 overflow-y-auto pb-16">
-        <div className="px-3 grid grid-cols-2 gap-2 mt-1">
-          {stocks.map((s) => (
-            <StockCard
-              key={s.id}
-              stock={s}
-              decimals={isActionTab ? 4 : 2}
-              onClick={() => navigate(`/stock/${s.id}`)}
-            />
-          ))}
-        </div>
+        {isActionTab && watchlistLoading ? (
+          <div className="flex justify-center py-16">
+            <div className="w-6 h-6 rounded-full border-2 border-[#2dba6a] border-t-transparent animate-spin" />
+          </div>
+        ) : isActionTab && stocks.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <span className="text-[#555] text-sm">尚未加入任何自選股</span>
+            <span className="text-[#444] text-xs">前往個股頁面點選 ♡ 加入自選</span>
+          </div>
+        ) : (
+          <div className="px-3 grid grid-cols-2 gap-2 mt-1">
+            {stocks.map((s) => (
+              <StockCard
+                key={s.id}
+                stock={s}
+                decimals={2}
+                onClick={() => navigate(`/stock/${s.id}`)}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

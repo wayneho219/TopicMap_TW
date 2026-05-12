@@ -106,3 +106,45 @@ export function useSectors(
 
   return sectors
 }
+
+export interface IndustryData {
+  name: string
+  topicCount: number
+  advance: number
+  decline: number
+  changePercent: number
+  totalVolume: number
+}
+
+export interface IndustryTopic {
+  name: string
+  source: 'tpex' | 'nlp'
+  changePercent: number
+  stockCount: number
+}
+
+export function useIndustries(
+  sort: 'change' | 'volume' = 'change',
+  order: 'asc' | 'desc' = 'desc',
+): IndustryData[] {
+  const [industries, setIndustries] = useState<IndustryData[]>([])
+  useEffect(() => {
+    fetch(`/api/market/industries?sort=${sort}&order=${order}`)
+      .then((r) => r.json())
+      .then((data: IndustryData[]) => setIndustries(data))
+      .catch(() => {})
+  }, [sort, order])
+  return industries
+}
+
+export function useIndustryTopics(name: string): IndustryTopic[] {
+  const [topics, setTopics] = useState<IndustryTopic[]>([])
+  useEffect(() => {
+    if (!name) { setTopics([]); return }
+    fetch(`/api/market/industry/${encodeURIComponent(name)}/topics`)
+      .then((r) => r.json())
+      .then((data: IndustryTopic[]) => setTopics(data))
+      .catch(() => {})
+  }, [name])
+  return topics
+}

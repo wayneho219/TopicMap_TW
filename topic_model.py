@@ -18,8 +18,8 @@ PHASE = "label"
 AUTO_LEVELS = False
 
 LEVELS: dict[str, int] = {   # AUTO_LEVELS=False 時才使用
-    "medium": 25,   # 建議範圍：15–30（中層主題數）
-    "fine":   60,   # 建議範圍：40–80（細層主題數）
+    "medium": 30,   # 建議範圍：15–30（中層主題數）
+    "fine":   80,   # 建議範圍：40–80（細層主題數）
 }
 
 # 自動偵測的搜尋範圍（可視需求調整）
@@ -31,10 +31,13 @@ AUTO_RANGES = {
 import json
 import os
 import re
+import ssl
 import numpy as np
 import pandas as pd
 import jieba
 import plotly.graph_objects as go
+
+ssl._create_default_https_context = ssl._create_unverified_context
 
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -44,137 +47,141 @@ from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import pdist
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 1 ── DOCUMENTS + 產業分類 JOIN
+# PHASE 1 ── CLUSTERING
 # ══════════════════════════════════════════════════════════════════════════════
-print("STEP 1 | 載入資料 + 產業分類 JOIN")
-df = pd.read_csv("data/articles.csv", encoding="utf-8-sig", parse_dates=["ArticleCreateTime"])
-df = df.dropna(subset=["ArticleText"])
-df["ArticleText"] = df["ArticleText"].astype(str).str.strip()
-df["stock_id"] = df["stock_id"].astype(str)
+if PHASE == "cluster":
+    # ══════════════════════════════════════════════════════════════════════════════
+    # STEP 1 ── DOCUMENTS + 產業分類 JOIN
+    # ══════════════════════════════════════════════════════════════════════════════
+    print("STEP 1 | 載入資料 + 產業分類 JOIN")
+    df = pd.read_csv("articles.csv", encoding="utf-8-sig", parse_dates=["ArticleCreateTime"])
+    df = df.dropna(subset=["ArticleText"])
+    df["ArticleText"] = df["ArticleText"].astype(str).str.strip()
+    df["stock_id"] = df["stock_id"].astype(str)
 
-# 從 tw_stocks.csv 取得產業分類（第一階層）
-stocks_df = pd.read_csv("data/tw_stocks.csv", encoding="utf-8-sig", dtype={"stock_code": str})
-industry_map = stocks_df.set_index("stock_code")["industry_name"].to_dict()
-df["industry_name"] = df["stock_id"].map(industry_map).fillna("其他")
+    # 從 tw_stocks.csv 取得產業分類（第一階層）
+    stocks_df = pd.read_csv("data/tw_stocks.csv", encoding="utf-8-sig", dtype={"stock_code": str})
+    industry_map = stocks_df.set_index("stock_code")["industry_name"].to_dict()
+    df["industry_name"] = df["stock_id"].map(industry_map).fillna("其他")
 
-# 文字清理：去 URL、去非中英數符號、壓縮重複字元
-def clean_text(text: str) -> str:
-    text = re.sub(r"https?://\S+", "", text)
-    text = re.sub(r"[^\u4e00-\u9fff\w\s]", " ", text)
-    text = re.sub(r"(.)\1{3,}", r"\1\1", text)
-    return text.strip()
+    # 文字清理：去 URL、去非中英數符號、壓縮重複字元
+    def clean_text(text: str) -> str:
+        text = re.sub(r"https?://\S+", "", text)
+        text = re.sub(r"[^\u4e00-\u9fff\w\s]", " ", text)
+        text = re.sub(r"(.)\1{3,}", r"\1\1", text)
+        return text.strip()
 
-df["ArticleText"] = df["ArticleText"].apply(clean_text)
-df = df.reset_index(drop=True)
-docs = df["ArticleText"].tolist()
+    df["ArticleText"] = df["ArticleText"].apply(clean_text)
+    df = df.reset_index(drop=True)
+    docs = df["ArticleText"].tolist()
 
-print(f"  總筆數: {len(df)}")
-print(f"  股票數: {df['stock_id'].nunique()}")
-print(f"  產業數: {df['industry_name'].nunique()}")
-print(f"  產業列表: {sorted(df['industry_name'].unique())}")
+    print(f"  總筆數: {len(df)}")
+    print(f"  股票數: {df['stock_id'].nunique()}")
+    print(f"  產業數: {df['industry_name'].nunique()}")
+    print(f"  產業列表: {sorted(df['industry_name'].unique())}")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 2 ── EMBEDDING  (BGE-large-zh, 1024d)
-# ══════════════════════════════════════════════════════════════════════════════
-EMBED_CACHE = "_embeddings.npy"
-if os.path.exists(EMBED_CACHE):
-    print("STEP 2 | 載入快取 embedding（跳過重算）")
-    embeddings = np.load(EMBED_CACHE)
-else:
-    print("STEP 2 | BGE-large-zh Embedding (1024d)")
-    embed_model = SentenceTransformer("BAAI/bge-large-zh-v1.5")
+    # ══════════════════════════════════════════════════════════════════════════════
+    # STEP 2 ── EMBEDDING  (BGE-m3, 384d)
+    # ══════════════════════════════════════════════════════════════════════════════
+    EMBED_CACHE = "_embeddings.npy"
+    if os.path.exists(EMBED_CACHE):
+        os.remove(EMBED_CACHE)
+        print("STEP 2 | 刪除舊的 embedding cache，準備重新計算")
+
+    print("STEP 2 | BGE-m3 Embedding (384d)")
+    embed_model = SentenceTransformer("BAAI/bge-m3")
     embeddings = embed_model.encode(
         docs, batch_size=32, show_progress_bar=True, normalize_embeddings=True
     )
     np.save(EMBED_CACHE, embeddings)
     print(f"  embedding 已存檔 → {EMBED_CACHE}")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 3 ── DIMENSION REDUCTION  (UMAP + T-SNE)
-# ══════════════════════════════════════════════════════════════════════════════
-print("STEP 3 | UMAP 15d + T-SNE 2d")
-umap_embeddings = UMAP(
-    n_components=15, n_neighbors=30, min_dist=0.0,
-    metric="cosine", random_state=42
-).fit_transform(embeddings)
+    # ══════════════════════════════════════════════════════════════════════════════
+    # STEP 3 ── DIMENSION REDUCTION  (UMAP + T-SNE)
+    # ══════════════════════════════════════════════════════════════════════════════
+    print("STEP 3 | UMAP 15d + T-SNE 2d")
+    umap_embeddings = UMAP(
+        n_components=15, n_neighbors=15, min_dist=0.0,
+        metric="cosine", random_state=42
+    ).fit_transform(embeddings)
 
-tsne_2d = TSNE(
-    n_components=2, perplexity=50, learning_rate="auto",
-    init="pca", random_state=42, n_jobs=-1
-).fit_transform(umap_embeddings)
+    tsne_2d = TSNE(
+        n_components=2, perplexity=50, learning_rate="auto",
+        init="pca", random_state=42, n_jobs=-1
+    ).fit_transform(umap_embeddings)
 
-df["tsne_x"], df["tsne_y"] = tsne_2d[:, 0], tsne_2d[:, 1]
+    df["tsne_x"], df["tsne_y"] = tsne_2d[:, 0], tsne_2d[:, 1]
 
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 4 ── HIERARCHICAL CLUSTERING
-# ══════════════════════════════════════════════════════════════════════════════
-print("STEP 4 | Ward Hierarchical Clustering")
-Z = linkage(pdist(umap_embeddings, metric="euclidean"), method="ward")
+    # ══════════════════════════════════════════════════════════════════════════════
+    # STEP 4 ── HIERARCHICAL CLUSTERING
+    # ══════════════════════════════════════════════════════════════════════════════
+    print("STEP 4 | Ward Hierarchical Clustering")
+    Z = linkage(pdist(umap_embeddings, metric="euclidean"), method="ward")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 4.5 ── AUTO LEVEL DETECTION（Calinski-Harabasz）
-# ══════════════════════════════════════════════════════════════════════════════
-if AUTO_LEVELS:
-    from sklearn.metrics import calinski_harabasz_score
+    # ══════════════════════════════════════════════════════════════════════════════
+    # STEP 4.5 ── AUTO LEVEL DETECTION（Calinski-Harabasz）
+    # ══════════════════════════════════════════════════════════════════════════════
+    if AUTO_LEVELS:
+        from sklearn.metrics import calinski_harabasz_score
 
-    def _best_k(k_range: range) -> int:
-        best_k, best_score = k_range.start, -1.0
-        for k in k_range:
-            labels = fcluster(Z, k, criterion="maxclust")
-            score = calinski_harabasz_score(umap_embeddings, labels)
-            if score > best_score:
-                best_score, best_k = score, k
-        return best_k
+        def _best_k(k_range: range) -> int:
+            best_k, best_score = k_range.start, -1.0
+            for k in k_range:
+                labels = fcluster(Z, k, criterion="maxclust")
+                score = calinski_harabasz_score(umap_embeddings, labels)
+                if score > best_score:
+                    best_score, best_k = score, k
+            return best_k
 
-    print("STEP 4.5 | 自動偵測最佳群數（Calinski-Harabasz）")
-    medium_k = _best_k(AUTO_RANGES["medium"])
-    fine_k   = _best_k(range(max(AUTO_RANGES["fine"].start, medium_k + 3),
-                             AUTO_RANGES["fine"].stop))
-    LEVELS = {"medium": medium_k, "fine": fine_k}
-    print(f"  → medium={medium_k}, fine={fine_k}")
+        print("STEP 4.5 | 自動偵測最佳群數（Calinski-Harabasz）")
+        medium_k = _best_k(AUTO_RANGES["medium"])
+        fine_k   = _best_k(range(max(AUTO_RANGES["fine"].start, medium_k + 3),
+                                AUTO_RANGES["fine"].stop))
+        LEVELS = {"medium": medium_k, "fine": fine_k}
+        print(f"  → medium={medium_k}, fine={fine_k}")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 5 ── MULTI-LEVEL CUTTING
-# ══════════════════════════════════════════════════════════════════════════════
-print("STEP 5 | Multi-level Cutting")
-cluster_assignments: dict[str, np.ndarray] = {}
-for level, n in LEVELS.items():
-    arr = fcluster(Z, n, criterion="maxclust")
-    cluster_assignments[level] = arr
-    df[f"cluster_{level}"] = arr
+    # ══════════════════════════════════════════════════════════════════════════════
+    # STEP 5 ── MULTI-LEVEL CUTTING
+    # ══════════════════════════════════════════════════════════════════════════════
+    print("STEP 5 | Multi-level Cutting")
+    cluster_assignments: dict[str, np.ndarray] = {}
+    for level, n in LEVELS.items():
+        arr = fcluster(Z, n, criterion="maxclust")
+        cluster_assignments[level] = arr
+        df[f"cluster_{level}"] = arr
 
-# 中途存檔（供 Phase 2 使用）
-df.to_parquet("_checkpoint.parquet", index=False)
-np.save("_cluster_fine.npy",   cluster_assignments["fine"])
-np.save("_cluster_medium.npy", cluster_assignments["medium"])
-np.save("_linkage.npy", Z)
-print("  分群結果已暫存")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 關鍵詞萃取工具
-# ══════════════════════════════════════════════════════════════════════════════
-def extract_keywords(indices: list[int], n: int = 15) -> list[str]:
-    subset = [docs[i] for i in indices]
-    tokenized = [" ".join(jieba.cut(d)) for d in subset]
-    vect = TfidfVectorizer(
-        max_features=n,
-        token_pattern=r"(?u)\b[\u4e00-\u9fff]{2,}\b",
-    )
-    try:
-        vect.fit(tokenized)
-        scores = np.asarray(vect.transform(tokenized).mean(axis=0)).flatten()
-        top_idx = scores.argsort()[::-1][:n]
-        vocab = {v: k for k, v in vect.vocabulary_.items()}
-        return [vocab[i] for i in top_idx if i in vocab]
-    except Exception:
-        return []
+    # 中途存檔（供 Phase 2 使用）
+    df.to_parquet("_checkpoint.parquet", index=False)
+    np.save("_cluster_fine.npy",   cluster_assignments["fine"])
+    np.save("_cluster_medium.npy", cluster_assignments["medium"])
+    np.save("_linkage.npy", Z)
+    print("  分群結果已暫存")
 
 
-def sample_sentences(indices: list[int], n: int = 3) -> list[str]:
-    """從群中取樣最短的幾句（較乾淨）。"""
-    picked = sorted(indices, key=lambda i: len(docs[i]))[:n]
-    return [docs[i][:80].replace("\n", " ") for i in picked]
+    # ══════════════════════════════════════════════════════════════════════════════
+    # 關鍵詞萃取工具
+    # ══════════════════════════════════════════════════════════════════════════════
+    def extract_keywords(indices: list[int], n: int = 15) -> list[str]:
+        subset = [docs[i] for i in indices]
+        tokenized = [" ".join(jieba.cut(d)) for d in subset]
+        vect = TfidfVectorizer(
+            max_features=n,
+            token_pattern=r"(?u)\b[\u4e00-\u9fff]{2,}\b",
+        )
+        try:
+            vect.fit(tokenized)
+            scores = np.asarray(vect.transform(tokenized).mean(axis=0)).flatten()
+            top_idx = scores.argsort()[::-1][:n]
+            vocab = {v: k for k, v in vect.vocabulary_.items()}
+            return [vocab[i] for i in top_idx if i in vocab]
+        except Exception:
+            return []
+
+
+    def sample_sentences(indices: list[int], n: int = 3) -> list[str]:
+        """從群中取樣最短的幾句（較乾淨）。"""
+        picked = sorted(indices, key=lambda i: len(docs[i]))[:n]
+        return [docs[i][:80].replace("\n", " ") for i in picked]
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -8,6 +8,41 @@ import os
 
 # ── 設定區 ────────────────────────────────────────────────────────────────────
 PTT_BASE      = "https://www.ptt.cc"
+<<<<<<< HEAD
+PTT_BOARDS    = ["Stock"]
+MAX_PER_STOCK = 10
+
+STOPWORDS = [
+
+    # ===== 法人買賣超 =====
+    "買超","賣超","外資","投信",
+    "自營商","排行","張數",
+    "收盤價","漲跌","百萬",
+
+    # ===== 月營收公告 =====
+    "去年同期","累計","增減",
+    "本月","去年","營收",
+    "收入","百分比","自結",
+
+    # ===== 財報公告 =====
+    "每股盈餘","EPS","稅前",
+    "稅後","淨利","損益","現金股利"
+
+    # ===== 公告垃圾 =====
+    "公開資訊觀測站","MOPS",
+    "TWSE","證交所","櫃買中心",
+    "重大訊息","公告",
+
+    # ===== 注意股 =====
+    "注意交易資訊",
+    "有價證券",
+    "達公布標準",
+
+    # ===== 股票抽籤 =====
+    "申購","承銷","承銷價",
+    "扣款日","抽籤日","進場","退場"
+
+=======
 PTT_BOARDS    = ["Stock"]  # 要爬的看板，可加 "StockForum" 等
 MAX_PER_STOCK = 10          # 每支股票最多保留幾篇
 STOPWORDS = [
@@ -23,9 +58,9 @@ STOPWORDS = [
     "注意交易資訊", "有價證券", "達公布標準",
     # 股票抽籤
     "申購", "承銷", "承銷價", "扣款日", "抽籤日", "進場", "退場",
+>>>>>>> main
 ]
 
-# PTT 網頁版需帶 over18 cookie，不需登入帳號
 _SESSION = requests.Session()
 _SESSION.cookies.set("over18", "1")
 _SESSION.headers.update({
@@ -41,7 +76,6 @@ _SESSION.headers.update({
 
 
 def _get(url: str, retries: int = 3) -> requests.Response | None:
-    """帶重試的 GET，遇到連線錯誤最多重試 retries 次。"""
     for attempt in range(1, retries + 1):
         try:
             resp = _SESSION.get(url, timeout=15)
@@ -54,24 +88,22 @@ def _get(url: str, retries: int = 3) -> requests.Response | None:
     return None
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# PTT 搜尋 + 全文抓取
-# ──────────────────────────────────────────────────────────────────────────────
+def _contains_stopword(text: str) -> bool:
+    """檢查標題或內文是否含有任何 stopword。"""
+    return any(sw in text for sw in STOPWORDS)
 
-def _search_articles(board: str, query: str, max_count: int) -> list[dict]:
-    """
-    用 PTT 內建搜尋取得指定關鍵字的文章清單。
-    URL 格式：https://www.ptt.cc/bbs/{board}/search?q={query}
 
-    回傳：[{"title": ..., "url": ..., "date": ...}, ...]，最多 max_count 筆。
+def _iter_search_articles(board: str, query: str):
     """
-    results = []
+    Generator：逐頁搜尋並逐篇 yield，讓外層可以按需取用，
+    不需預先決定要抓幾篇，直到沒有更多頁才停止。
+    """
     url = f"{PTT_BASE}/bbs/{board}/search?q={requests.utils.quote(query)}"
 
-    while len(results) < max_count:
+    while url:
         resp = _get(url)
         if resp is None:
-            break
+            return
 
         soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -79,29 +111,22 @@ def _search_articles(board: str, query: str, max_count: int) -> list[dict]:
             title_tag = row.select_one("div.title a")
             date_tag  = row.select_one("div.date")
             if not title_tag:
-                continue  # 已刪除文章
-
-            results.append({
+                continue
+            yield {
                 "title": title_tag.get_text(strip=True),
                 "url":   PTT_BASE + title_tag["href"],
                 "date":  date_tag.get_text(strip=True) if date_tag else "",
-            })
+            }
 
-            if len(results) >= max_count:
-                break
-
-        # 翻下一頁搜尋結果（按鈕存在但無 href 表示已是第一頁）
         prev = soup.select_one("a.btn.wide:-soup-contains('上頁')")
-        if not prev or not prev.get("href") or len(results) >= max_count:
-            break
-        url = PTT_BASE + prev["href"]
-        time.sleep(0.3)
-
-    return results[:max_count]
+        if prev and prev.get("href"):
+            url = PTT_BASE + prev["href"]
+            time.sleep(0.3)
+        else:
+            url = None  # 已到最舊一頁，結束
 
 
 def _get_article_content(url: str) -> str:
-    """取得單篇文章內文，移除 header 與推文。"""
     resp = _get(url)
     if resp is None:
         return ""
@@ -122,21 +147,16 @@ def _get_article_content(url: str) -> str:
     return content
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 主函式
-# ──────────────────────────────────────────────────────────────────────────────
-
 def _empty_df() -> pd.DataFrame:
     return pd.DataFrame(columns=[
         "stock_id", "ArticleTitle", "ArticleText", "ArticleCreateTime"
     ])
 
 
-CHECKPOINT_FILE = "_ptt_checkpoint.json"   # 斷點紀錄檔
+CHECKPOINT_FILE = "_ptt_checkpoint.json"
 
 
 def _load_checkpoint() -> set[str]:
-    """讀取斷點，回傳已完成的 stock_id 集合。"""
     if os.path.exists(CHECKPOINT_FILE):
         with open(CHECKPOINT_FILE, encoding="utf-8") as f:
             return set(json.load(f).get("done", []))
@@ -144,13 +164,11 @@ def _load_checkpoint() -> set[str]:
 
 
 def _save_checkpoint(done: set[str]) -> None:
-    """將已完成的 stock_id 寫入斷點檔。"""
     with open(CHECKPOINT_FILE, "w", encoding="utf-8") as f:
         json.dump({"done": list(done)}, f, ensure_ascii=False)
 
 
 def _append_to_csv(rows: list[dict], output_path: str, write_header: bool) -> None:
-    """將一批資料 append 寫入 CSV。"""
     if not rows:
         return
     current_year = pd.Timestamp.now().year
@@ -176,20 +194,9 @@ def fetch_and_process_ptt(
     max_per_stock: int = MAX_PER_STOCK,
     output_path: str = "articles.csv",
 ) -> pd.DataFrame:
-    """
-    對每支股票用代號直接搜尋 PTT，取前 max_per_stock 篇，不需帳號。
-    支援斷點續跑：中斷後重新執行會跳過已完成的股票。
-    每處理完一支股票即批次寫入 CSV，不需等全部完成。
-
-    :param stock_dict:    {'2330': ['台積電', ...], ...}
-    :param boards:        要搜尋的看板 list
-    :param max_per_stock: 每支股票最多取幾篇
-    :param output_path:   輸出 CSV 路徑
-    :return: DataFrame 欄位：stock_id, ArticleTitle, ArticleText, ArticleCreateTime
-    """
     done_ids    = _load_checkpoint()
     seen_urls:  set[str] = set()
-    first_write = not os.path.exists(output_path)  # 檔案不存在時才寫 header
+    first_write = not os.path.exists(output_path)
 
     total   = len(stock_dict)
     skipped = len(done_ids & stock_dict.keys())
@@ -203,21 +210,41 @@ def fetch_and_process_ptt(
         batch: list[dict] = []
 
         for board in boards:
-            print(f"  [{i}/{total}] 搜尋 [{board}] {stock_id}...")
-            articles = _search_articles(board, stock_id, max_per_stock)
-            print(f"    找到 {len(articles)} 篇，抓取全文...")
+            if len(batch) >= max_per_stock:
+                break
 
-            for art in articles:
+            print(f"  [{i}/{total}] 搜尋 [{board}] {stock_id}...")
+            scanned = skipped_count = 0
+
+            # generator：按需逐篇取用，自動翻頁直到滿額或無更多文章
+            for art in _iter_search_articles(board, stock_id):
+                if len(batch) >= max_per_stock:
+                    break
+
+                scanned += 1
                 url = art["url"]
                 if url in seen_urls:
                     continue
                 seen_urls.add(url)
 
+                # ── 標題過濾 ────────────────────────────────────────
+                if _contains_stopword(art["title"]):
+                    print(f"    [SKIP] 標題含停用詞：{art['title'][:40]}")
+                    skipped_count += 1
+                    continue
+
                 content = _get_article_content(url)
                 time.sleep(0.3)
 
+<<<<<<< HEAD
+                # ── 內文過濾 ────────────────────────────────────────
+                if _contains_stopword(content):
+                    print(f"    [SKIP] 內文含停用詞：{art['title'][:40]}")
+                    skipped_count += 1
+=======
                 title = art["title"]
                 if any(sw in title for sw in STOPWORDS):
+>>>>>>> main
                     continue
 
                 batch.append({
@@ -227,42 +254,29 @@ def fetch_and_process_ptt(
                     "ArticleCreateTime": art["date"],
                     "_source_url":       url,
                 })
+                print(f"    [OK {len(batch)}/{max_per_stock}] {art['title'][:40]}")
 
-        # ── 批次寫入 CSV ──────────────────────────────────────────────
+            print(f"    掃描 {scanned} 篇，略過 {skipped_count} 篇，收錄 {len(batch)} 篇。")
+            if len(batch) < max_per_stock:
+                print(f"    [WARN] PTT 已無更多文章，{stock_id} 最終僅收錄 {len(batch)} 篇。")
+
         _append_to_csv(batch, output_path, write_header=first_write)
         first_write = False
         print(f"    寫入 {len(batch)} 筆 → {output_path}")
 
-        # ── 更新斷點 ──────────────────────────────────────────────────
         done_ids.add(stock_id)
         _save_checkpoint(done_ids)
 
-    # ── 清除斷點（全部完成）─────────────────────────────────────────
     if done_ids >= stock_dict.keys():
         os.remove(CHECKPOINT_FILE)
         print(f"\n所有股票處理完畢，已清除斷點檔。")
 
-    # ── 讀回完整結果回傳 ─────────────────────────────────────────────
     if os.path.exists(output_path):
         return pd.read_csv(output_path, encoding="utf-8-sig")
     return _empty_df()
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 全市場清單對接
-# ──────────────────────────────────────────────────────────────────────────────
-
 def load_stock_dict_from_csv(csv_path: str) -> dict:
-    """
-    從全市場股票清單 CSV 建立 stock_dict。
-    代號欄位自動偵測：優先用 stock_code，其次 stock_id。
-
-    預期欄位：
-        stock_code 或 stock_id — 股票代號，例如 2330
-    可選欄位：
-        stock_name  — 公司簡稱，例如 台積電
-        stock_alias — 其他常用名稱（逗號分隔），例如 TSMC,神山
-    """
     df = pd.read_csv(csv_path, dtype=str).fillna("")
 
     if "stock_code" in df.columns:
@@ -290,17 +304,8 @@ def load_stock_dict_from_csv(csv_path: str) -> dict:
     return stock_dict
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 使用範例
-# ──────────────────────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
-
-
-
-    # ── 方式 B：從 CSV 載入全市場清單 ────────────────────────────────
-    my_stock_dict = load_stock_dict_from_csv("tw_stocks.csv")
-
+    my_stock_dict = load_stock_dict_from_csv("data/tw_stocks.csv")
     output_path = "articles.csv"
 
     print("開始從 PTT 搜尋各股票文章...")

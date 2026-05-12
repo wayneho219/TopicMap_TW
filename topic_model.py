@@ -11,15 +11,15 @@ PHASE = "label"    → 讀取 topic_labels.json，套用標籤並輸出視覺化
 # │    "cluster" ── 分群 + 輸出命名素材      │
 # │    "label"   ── 套用標籤 + 輸出結果      │
 # └─────────────────────────────────────────┘
-PHASE = "label"
+PHASE = "cluster"
 
 # AUTO_LEVELS = True  → 自動偵測各層最佳群數（CH 分數偏好少群，通常不建議）
 # AUTO_LEVELS = False → 使用下方 LEVELS 手動指定（建議）
 AUTO_LEVELS = False
 
 LEVELS: dict[str, int] = {   # AUTO_LEVELS=False 時才使用
-    "medium": 12,   # 過濾公告文後討論文較少，群數往下調
-    "fine":   20,
+    "medium": 30,   # 建議範圍：15–30（中層主題數）
+    "fine":   80,   # 建議範圍：40–80（細層主題數）
 }
 
 # 自動偵測的搜尋範圍（可視需求調整）
@@ -31,11 +31,13 @@ AUTO_RANGES = {
 import json
 import os
 import re
+import ssl
 import numpy as np
 import pandas as pd
 import jieba
 import plotly.graph_objects as go
-from filter import filter_dataframe, filter_announcements_dataframe
+
+ssl._create_default_https_context = ssl._create_unverified_context
 
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -46,145 +48,141 @@ from scipy.spatial.distance import pdist
 import yfinance as yf
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 1 ── DOCUMENTS + 產業分類 JOIN
+# PHASE 1 ── CLUSTERING
 # ══════════════════════════════════════════════════════════════════════════════
-print("STEP 1 | 載入資料 + 產業分類 JOIN")
-df = pd.read_csv("articles.csv", encoding="utf-8-sig", parse_dates=["ArticleCreateTime"])
-df = df.dropna(subset=["ArticleText"])
-df["ArticleText"] = df["ArticleText"].astype(str).str.strip()
-df["stock_id"] = df["stock_id"].astype(str)
+if PHASE == "cluster":
+    # ══════════════════════════════════════════════════════════════════════════════
+    # STEP 1 ── DOCUMENTS + 產業分類 JOIN
+    # ══════════════════════════════════════════════════════════════════════════════
+    print("STEP 1 | 載入資料 + 產業分類 JOIN")
+    df = pd.read_csv("articles.csv", encoding="utf-8-sig", parse_dates=["ArticleCreateTime"])
+    df = df.dropna(subset=["ArticleText"])
+    df["ArticleText"] = df["ArticleText"].astype(str).str.strip()
+    df["stock_id"] = df["stock_id"].astype(str)
 
-# 第一道：版規雜訊（水桶公告、違規警告等）
-df, n_noise = filter_dataframe(df)
-print(f"  過濾版規雜訊: {n_noise} 篇 → 剩餘 {len(df)} 篇")
+    # 從 tw_stocks.csv 取得產業分類（第一階層）
+    stocks_df = pd.read_csv("data/tw_stocks.csv", encoding="utf-8-sig", dtype={"stock_code": str})
+    industry_map = stocks_df.set_index("stock_code")["industry_name"].to_dict()
+    df["industry_name"] = df["stock_id"].map(industry_map).fillna("其他")
 
-# 第二道：財務公告格式文（月營收表格、財報、股利決議、排行日報等）
-df, n_announcement = filter_announcements_dataframe(df)
-print(f"  過濾公告格式: {n_announcement} 篇 → 剩餘 {len(df)} 篇")
+    # 文字清理：去 URL、去非中英數符號、壓縮重複字元
+    def clean_text(text: str) -> str:
+        text = re.sub(r"https?://\S+", "", text)
+        text = re.sub(r"[^\u4e00-\u9fff\w\s]", " ", text)
+        text = re.sub(r"(.)\1{3,}", r"\1\1", text)
+        return text.strip()
 
-# 從 tw_stocks.csv 取得產業分類（第一階層）
-stocks_df = pd.read_csv("data/tw_stocks.csv", encoding="utf-8-sig", dtype={"stock_code": str})
-industry_map = stocks_df.set_index("stock_code")["industry_name"].to_dict()
-df["industry_name"] = df["stock_id"].map(industry_map).fillna("其他")
+    df["ArticleText"] = df["ArticleText"].apply(clean_text)
+    df = df.reset_index(drop=True)
+    docs = df["ArticleText"].tolist()
 
-# 文字清理：去 URL、去非中英數符號、壓縮重複字元
-def clean_text(text: str) -> str:
-    text = re.sub(r"https?://\S+", "", text)
-    text = re.sub(r"[^\u4e00-\u9fff\w\s]", " ", text)
-    text = re.sub(r"(.)\1{3,}", r"\1\1", text)
-    return text.strip()
+    print(f"  總筆數: {len(df)}")
+    print(f"  股票數: {df['stock_id'].nunique()}")
+    print(f"  產業數: {df['industry_name'].nunique()}")
+    print(f"  產業列表: {sorted(df['industry_name'].unique())}")
 
-df["ArticleText"] = df["ArticleText"].apply(clean_text)
-df = df.reset_index(drop=True)
-docs = df["ArticleText"].tolist()
+    # ══════════════════════════════════════════════════════════════════════════════
+    # STEP 2 ── EMBEDDING  (BGE-m3, 384d)
+    # ══════════════════════════════════════════════════════════════════════════════
+    EMBED_CACHE = "_embeddings.npy"
+    if os.path.exists(EMBED_CACHE):
+        os.remove(EMBED_CACHE)
+        print("STEP 2 | 刪除舊的 embedding cache，準備重新計算")
 
-print(f"  總筆數: {len(df)}")
-print(f"  股票數: {df['stock_id'].nunique()}")
-print(f"  產業數: {df['industry_name'].nunique()}")
-print(f"  產業列表: {sorted(df['industry_name'].unique())}")
-
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 2 ── EMBEDDING  (BGE-large-zh, 1024d)
-# ══════════════════════════════════════════════════════════════════════════════
-EMBED_CACHE = "cache/_embeddings.npy"
-if os.path.exists(EMBED_CACHE):
-    print("STEP 2 | 載入快取 embedding（跳過重算）")
-    embeddings = np.load(EMBED_CACHE)
-else:
-    print("STEP 2 | BGE-large-zh Embedding (1024d)")
-    embed_model = SentenceTransformer("BAAI/bge-small-zh-v1.5")
+    print("STEP 2 | BGE-m3 Embedding (384d)")
+    embed_model = SentenceTransformer("BAAI/bge-m3")
     embeddings = embed_model.encode(
-        docs, batch_size=64, show_progress_bar=True, normalize_embeddings=True
+        docs, batch_size=32, show_progress_bar=True, normalize_embeddings=True
     )
     np.save(EMBED_CACHE, embeddings)
     print(f"  embedding 已存檔 → {EMBED_CACHE}")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 3 ── DIMENSION REDUCTION  (UMAP + T-SNE)
-# ══════════════════════════════════════════════════════════════════════════════
-print("STEP 3 | UMAP 15d + T-SNE 2d")
-umap_embeddings = UMAP(
-    n_components=15, n_neighbors=30, min_dist=0.0,
-    metric="cosine", random_state=42
-).fit_transform(embeddings)
+    # ══════════════════════════════════════════════════════════════════════════════
+    # STEP 3 ── DIMENSION REDUCTION  (UMAP + T-SNE)
+    # ══════════════════════════════════════════════════════════════════════════════
+    print("STEP 3 | UMAP 15d + T-SNE 2d")
+    umap_embeddings = UMAP(
+        n_components=15, n_neighbors=15, min_dist=0.0,
+        metric="cosine", random_state=42
+    ).fit_transform(embeddings)
 
-tsne_2d = TSNE(
-    n_components=2, perplexity=50, learning_rate="auto",
-    init="pca", random_state=42, n_jobs=-1
-).fit_transform(umap_embeddings)
+    tsne_2d = TSNE(
+        n_components=2, perplexity=50, learning_rate="auto",
+        init="pca", random_state=42, n_jobs=-1
+    ).fit_transform(umap_embeddings)
 
-df["tsne_x"], df["tsne_y"] = tsne_2d[:, 0], tsne_2d[:, 1]
+    df["tsne_x"], df["tsne_y"] = tsne_2d[:, 0], tsne_2d[:, 1]
 
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 4 ── HIERARCHICAL CLUSTERING
-# ══════════════════════════════════════════════════════════════════════════════
-print("STEP 4 | Ward Hierarchical Clustering")
-Z = linkage(pdist(umap_embeddings, metric="euclidean"), method="ward")
+    # ══════════════════════════════════════════════════════════════════════════════
+    # STEP 4 ── HIERARCHICAL CLUSTERING
+    # ══════════════════════════════════════════════════════════════════════════════
+    print("STEP 4 | Ward Hierarchical Clustering")
+    Z = linkage(pdist(umap_embeddings, metric="euclidean"), method="ward")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 4.5 ── AUTO LEVEL DETECTION（Calinski-Harabasz）
-# ══════════════════════════════════════════════════════════════════════════════
-if AUTO_LEVELS:
-    from sklearn.metrics import calinski_harabasz_score
+    # ══════════════════════════════════════════════════════════════════════════════
+    # STEP 4.5 ── AUTO LEVEL DETECTION（Calinski-Harabasz）
+    # ══════════════════════════════════════════════════════════════════════════════
+    if AUTO_LEVELS:
+        from sklearn.metrics import calinski_harabasz_score
 
-    def _best_k(k_range: range) -> int:
-        best_k, best_score = k_range.start, -1.0
-        for k in k_range:
-            labels = fcluster(Z, k, criterion="maxclust")
-            score = calinski_harabasz_score(umap_embeddings, labels)
-            if score > best_score:
-                best_score, best_k = score, k
-        return best_k
+        def _best_k(k_range: range) -> int:
+            best_k, best_score = k_range.start, -1.0
+            for k in k_range:
+                labels = fcluster(Z, k, criterion="maxclust")
+                score = calinski_harabasz_score(umap_embeddings, labels)
+                if score > best_score:
+                    best_score, best_k = score, k
+            return best_k
 
-    print("STEP 4.5 | 自動偵測最佳群數（Calinski-Harabasz）")
-    medium_k = _best_k(AUTO_RANGES["medium"])
-    fine_k   = _best_k(range(max(AUTO_RANGES["fine"].start, medium_k + 3),
-                             AUTO_RANGES["fine"].stop))
-    LEVELS = {"medium": medium_k, "fine": fine_k}
-    print(f"  → medium={medium_k}, fine={fine_k}")
+        print("STEP 4.5 | 自動偵測最佳群數（Calinski-Harabasz）")
+        medium_k = _best_k(AUTO_RANGES["medium"])
+        fine_k   = _best_k(range(max(AUTO_RANGES["fine"].start, medium_k + 3),
+                                AUTO_RANGES["fine"].stop))
+        LEVELS = {"medium": medium_k, "fine": fine_k}
+        print(f"  → medium={medium_k}, fine={fine_k}")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 5 ── MULTI-LEVEL CUTTING
-# ══════════════════════════════════════════════════════════════════════════════
-print("STEP 5 | Multi-level Cutting")
-cluster_assignments: dict[str, np.ndarray] = {}
-for level, n in LEVELS.items():
-    arr = fcluster(Z, n, criterion="maxclust")
-    cluster_assignments[level] = arr
-    df[f"cluster_{level}"] = arr
+    # ══════════════════════════════════════════════════════════════════════════════
+    # STEP 5 ── MULTI-LEVEL CUTTING
+    # ══════════════════════════════════════════════════════════════════════════════
+    print("STEP 5 | Multi-level Cutting")
+    cluster_assignments: dict[str, np.ndarray] = {}
+    for level, n in LEVELS.items():
+        arr = fcluster(Z, n, criterion="maxclust")
+        cluster_assignments[level] = arr
+        df[f"cluster_{level}"] = arr
 
-# 中途存檔（供 Phase 2 使用）
-df.to_parquet("cache/_checkpoint.parquet", index=False)
-np.save("cache/_cluster_fine.npy",   cluster_assignments["fine"])
-np.save("cache/_cluster_medium.npy", cluster_assignments["medium"])
-np.save("cache/_linkage.npy", Z)
-print("  分群結果已暫存")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 關鍵詞萃取工具
-# ══════════════════════════════════════════════════════════════════════════════
-def extract_keywords(indices: list[int], n: int = 15) -> list[str]:
-    subset = [docs[i] for i in indices]
-    tokenized = [" ".join(jieba.cut(d)) for d in subset]
-    vect = TfidfVectorizer(
-        max_features=n,
-        token_pattern=r"(?u)\b[\u4e00-\u9fff]{2,}\b",
-    )
-    try:
-        vect.fit(tokenized)
-        scores = np.asarray(vect.transform(tokenized).mean(axis=0)).flatten()
-        top_idx = scores.argsort()[::-1][:n]
-        vocab = {v: k for k, v in vect.vocabulary_.items()}
-        return [vocab[i] for i in top_idx if i in vocab]
-    except Exception:
-        return []
+    # 中途存檔（供 Phase 2 使用）
+    df.to_parquet("_checkpoint.parquet", index=False)
+    np.save("_cluster_fine.npy",   cluster_assignments["fine"])
+    np.save("_cluster_medium.npy", cluster_assignments["medium"])
+    np.save("_linkage.npy", Z)
+    print("  分群結果已暫存")
 
 
-def sample_sentences(indices: list[int], n: int = 3) -> list[str]:
-    """從群中取樣最短的幾句（較乾淨）。"""
-    picked = sorted(indices, key=lambda i: len(docs[i]))[:n]
-    return [docs[i][:80].replace("\n", " ") for i in picked]
+    # ══════════════════════════════════════════════════════════════════════════════
+    # 關鍵詞萃取工具
+    # ══════════════════════════════════════════════════════════════════════════════
+    def extract_keywords(indices: list[int], n: int = 15) -> list[str]:
+        subset = [docs[i] for i in indices]
+        tokenized = [" ".join(jieba.cut(d)) for d in subset]
+        vect = TfidfVectorizer(
+            max_features=n,
+            token_pattern=r"(?u)\b[\u4e00-\u9fff]{2,}\b",
+        )
+        try:
+            vect.fit(tokenized)
+            scores = np.asarray(vect.transform(tokenized).mean(axis=0)).flatten()
+            top_idx = scores.argsort()[::-1][:n]
+            vocab = {v: k for k, v in vect.vocabulary_.items()}
+            return [vocab[i] for i in top_idx if i in vocab]
+        except Exception:
+            return []
+
+
+    def sample_sentences(indices: list[int], n: int = 3) -> list[str]:
+        """從群中取樣最短的幾句（較乾淨）。"""
+        picked = sorted(indices, key=lambda i: len(docs[i]))[:n]
+        return [docs[i][:80].replace("\n", " ") for i in picked]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -235,17 +233,17 @@ if PHASE == "cluster":
 
             template[level][str(cid)] = ""
 
-    with open("labels/label_input.txt", "w", encoding="utf-8") as f:
+    with open("label_input.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-    with open("labels/label_template.json", "w", encoding="utf-8") as f:
+    with open("label_template.json", "w", encoding="utf-8") as f:
         json.dump(template, f, ensure_ascii=False, indent=2)
 
-    print("\n  labels/label_input.txt   ← 貼給 LLM 或自行命名")
-    print("  labels/label_template.json ← 填入名稱後將檔名改為 labels/topic_labels.json")
+    print("\n  label_input.txt   ← 貼給 LLM 或自行命名")
+    print("  label_template.json ← 填入名稱後將檔名改為 topic_labels.json")
     print("\n完成 Phase 1。命名完畢後：")
     print("  1. 將名稱填入 label_template.json")
-    print("  2. 存為 labels/topic_labels.json")
+    print("  2. 存為 topic_labels.json")
     print('  3. 將程式頂端 PHASE = "cluster" 改為 PHASE = "label"')
     print("  4. 重新執行")
 
@@ -257,15 +255,15 @@ elif PHASE == "label":
     print("\nPHASE 2 | 套用標籤 + 輸出視覺化")
 
     if not os.path.exists("labels/topic_labels.json"):
-        raise FileNotFoundError("找不到 labels/topic_labels.json，請先完成 Phase 1 命名步驟。")
+        raise FileNotFoundError("找不到 topic_labels.json，請先完成 Phase 1 命名步驟。")
 
     with open("labels/topic_labels.json", encoding="utf-8") as f:
         topic_labels: dict[str, dict[str, str]] = json.load(f)
 
     # 從暫存還原分群（跳過耗時步驟）
-    df = pd.read_parquet("cache/_checkpoint.parquet")
+    df = pd.read_parquet("_checkpoint.parquet")
     for level in ["medium", "fine"]:
-        arr = np.load(f"cache/_cluster_{level}.npy")
+        arr = np.load(f"_cluster_{level}.npy")
         int_labels = {int(k): v for k, v in topic_labels[level].items()}
         df[f"label_{level}"] = pd.Series(arr).map(int_labels).values
 
@@ -278,8 +276,8 @@ elif PHASE == "label":
         title="T-SNE ── 產業分布（顏色=產業，可切換 medium/fine 標籤）",
         width=1400, height=900,
     )
-    fig_scatter.write_html("output/tsne_industry.html", include_mathjax=False)
-    print("  output/tsne_industry.html")
+    fig_scatter.write_html("tsne_industry.html", include_mathjax=False)
+    print("  tsne_industry.html")
 
     for level in ["medium", "fine"]:
         fig = px.scatter(
@@ -289,8 +287,66 @@ elif PHASE == "label":
             title=f"T-SNE ── {level} 層 NLP 主題",
             width=1400, height=900,
         )
-        fig.write_html(f"output/tsne_{level}.html", include_mathjax=False)
-        print(f"  output/tsne_{level}.html")
+        fig.write_html(f"tsne_{level}.html", include_mathjax=False)
+        print(f"  tsne_{level}.html")
+
+    # ── 載入股票價格和成交量（使用 yfinance）─────────────────────────────────────────
+    import yfinance as yf
+
+    df["close_price"] = None
+    df["volume"] = None
+    df["invested_amount"] = None
+
+    # 快取股票資料以避免重複查詢
+    stock_cache: dict[str, pd.DataFrame] = {}
+
+    print("  正在抓取股票價格和成交量資料...")
+    unique_stocks = df["stock_id"].unique()
+
+    for stock_id in unique_stocks:
+        try:
+            # 台灣股票代碼格式：XXXX.TW
+            ticker = f"{str(stock_id).zfill(4)}.TW"
+
+            # 使用 Ticker 物件取得歷史資料（避免 websocket 問題）
+            tick = yf.Ticker(ticker)
+            hist = tick.history(period="2y")
+
+            if not hist.empty:
+                stock_cache[str(stock_id)] = hist
+                print(f"    [OK] {ticker}")
+        except Exception as e:
+            print(f"    [ERR] {ticker} - {type(e).__name__}")
+
+    # 為每篇文章填入對應日期的股價和成交量
+    for idx, row in df.iterrows():
+        stock_id = str(row["stock_id"])
+        article_date = pd.to_datetime(row["ArticleCreateTime"]).date()
+
+        if stock_id in stock_cache:
+            hist = stock_cache[stock_id]
+
+            # 找最接近的交易日（向前查找）
+            valid_dates = hist.index[hist.index.notna()]
+            matching_dates = valid_dates[valid_dates.to_series().dt.date <= article_date]
+            if len(matching_dates) > 0:
+                closest_date = matching_dates[-1]
+                close_price = hist.loc[closest_date, "Close"]
+                volume = hist.loc[closest_date, "Volume"]
+
+                df.at[idx, "close_price"] = float(close_price)
+                df.at[idx, "volume"] = int(volume)
+
+                if close_price is not None and volume is not None and volume > 0:
+                    df.at[idx, "invested_amount"] = float(close_price) * int(volume)
+
+    print("  已完成股票價格和成交量資料抓取")
+
+    # ── 完整結果 ─────────────────────────────────────────────────────────────
+    out_cols = ["stock_id", "industry_name", "ArticleCreateTime", "close_price", "volume", "invested_amount",
+                "label_medium", "label_fine"]
+    df[out_cols].to_csv("result_all.csv", encoding="utf-8-sig", index=False)
+    print("  result_all.csv")
 
     # ── 各層主題統計 CSV ─────────────────────────────────────────────────────
     for level in ["medium", "fine"]:
@@ -301,10 +357,25 @@ elif PHASE == "label":
         )
         stat["總計"] = stat.sum(axis=1)
         stat.sort_values("總計", ascending=False).to_csv(
-            f"output/topics_{level}.csv", encoding="utf-8-sig"
+            f"topics_{level}.csv", encoding="utf-8-sig"
         )
-        print(f"  output/topics_{level}.csv")
+        print(f"  topics_{level}.csv")
 
+<<<<<<< HEAD
+    # ── 各層主題投入金額統計 CSV ────────────────────────────────────────────
+    for level in ["medium", "fine"]:
+        invested_stat = (
+            df.groupby(f"label_{level}")["invested_amount"].sum()
+            .fillna(0)
+            .sort_values(ascending=False)
+            .to_frame("總投入金額")
+        )
+        invested_stat.index.name = f"主題({level})"
+        invested_stat.to_csv(
+            f"invested_amount_{level}.csv", encoding="utf-8-sig"
+        )
+        print(f"  invested_amount_{level}.csv")
+=======
     # ── 股價與投入金額（yfinance）────────────────────────────────────────────
     print("\n  正在抓取股票歷史股價（yfinance）...")
     df["close_price"] = None
@@ -346,6 +417,7 @@ elif PHASE == "label":
                 "label_medium", "label_fine"]
     df[out_cols].to_csv("output/result_all.csv", encoding="utf-8-sig", index=False)
     print("  output/result_all.csv")
+>>>>>>> main
 
     # ── 各層主題投入金額統計 CSV ──────────────────────────────────────────────
     for level in ["medium", "fine"]:
@@ -454,95 +526,6 @@ elif PHASE == "label":
         width=1000, height=1000,
         margin=dict(t=60, l=10, r=10, b=10),
     )
-    fig_sb.write_html("output/tree_sunburst.html", include_mathjax=False)
-    print("  output/tree_sunburst.html")
+    fig_sb.write_html("tree_sunburst.html", include_mathjax=False)
+    print("  tree_sunburst.html")
 
-    # ── Treemap（矩形樹圖） ──────────────────────────────────────────────────
-    fig_tm = go.Figure(go.Treemap(
-        ids=_ids,
-        labels=_labels,
-        parents=_parents,
-        values=_values,
-        marker=dict(colors=_colors),
-        branchvalues="total",
-        textinfo="label+value",
-        hovertemplate="<b>%{label}</b><br>文章數: %{value}<br>占比: %{percentParent:.1%}<extra></extra>",
-    ))
-    fig_tm.update_layout(
-        title="台股新聞主題 Treemap（產業 → 中主題 → 細主題）",
-        width=1400, height=900,
-        margin=dict(t=50, l=10, r=10, b=10),
-    )
-    fig_tm.write_html("output/tree_treemap.html", include_mathjax=False)
-    print("  output/tree_treemap.html")
-
-    # ── Icicle（橫向層次圖） ─────────────────────────────────────────────────
-    fig_ic = go.Figure(go.Icicle(
-        ids=_ids,
-        labels=_labels,
-        parents=_parents,
-        values=_values,
-        marker=dict(colors=_colors),
-        branchvalues="total",
-        tiling=dict(orientation="v", pad=3),
-        textfont=dict(size=13),
-        hovertemplate="<b>%{label}</b><br>文章數: %{value}<br>占比: %{percentParent:.1%}<extra></extra>",
-    ))
-    fig_ic.update_layout(
-        title="台股新聞主題層次圖（產業 → 中主題 → 細主題）",
-        width=1400, height=900,
-        margin=dict(t=50, l=10, r=10, b=10),
-    )
-    fig_ic.write_html("output/tree_icicle.html", include_mathjax=False)
-    print("  output/tree_icicle.html")
-
-    # ── Dendrogram ───────────────────────────────────────────────────────────
-    if os.path.exists("cache/_linkage.npy"):
-        from scipy.cluster.hierarchy import dendrogram as scipy_dendrogram
-
-        Z_loaded = np.load("cache/_linkage.npy")
-        ddata = scipy_dendrogram(Z_loaded, truncate_mode="lastp", p=60, no_plot=True)
-
-        shapes_x, shapes_y = [], []
-        for xs, ys in zip(ddata["icoord"], ddata["dcoord"]):
-            shapes_x += xs + [None]
-            shapes_y += ys + [None]
-
-        leaf_positions = sorted(set(
-            v for xs, ys in zip(ddata["icoord"], ddata["dcoord"])
-            for v, y in zip(xs, ys) if y == 0.0
-        ))
-
-        fig_dend = go.Figure()
-        fig_dend.add_trace(go.Scatter(
-            x=shapes_x, y=shapes_y,
-            mode="lines",
-            line=dict(color="#4C78A8", width=1.2),
-            hoverinfo="skip",
-        ))
-        fig_dend.update_layout(
-            title="Ward Hierarchical Clustering Dendrogram（top 60 nodes）",
-            xaxis=dict(
-                tickmode="array",
-                tickvals=leaf_positions,
-                ticktext=ddata["ivl"],
-                tickangle=-60,
-                tickfont=dict(size=10),
-            ),
-            yaxis=dict(title="Distance"),
-            width=1400, height=650,
-            plot_bgcolor="white",
-            showlegend=False,
-        )
-        fig_dend.write_html("output/dendrogram.html", include_mathjax=False)
-        print("  output/dendrogram.html")
-
-    print("\n完成 Phase 2！")
-    print("\n輸出檔案：")
-    print("  output/tree_sunburst.html  ← 樹狀圓餅圖（產業 → 中主題 → 細主題）")
-    print("  output/tree_treemap.html   ← 矩形樹圖")
-    print("  output/tree_icicle.html    ← 層次圖")
-    print("  output/tsne_industry.html  ← T-SNE 散點（產業顏色）")
-    print("  output/tsne_medium.html    ← T-SNE 散點（medium 主題顏色）")
-    print("  output/tsne_fine.html      ← T-SNE 散點（fine 主題顏色）")
-    print("  output/result_all.csv      ← 完整分群結果")

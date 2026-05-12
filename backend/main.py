@@ -3,6 +3,7 @@ import os
 import json
 import datetime
 import urllib.request
+from collections import defaultdict
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -550,3 +551,159 @@ def get_topic_stocks(name: str, level: str = 'medium',
         }
         for r in rows
     ]
+
+
+@app.get('/api/market/industries')
+def get_industries(sort: str = 'change', order: str = 'desc'):
+    chain_conn = sqlite3.connect(DB_CHAIN_PATH)
+    chain_conn.row_factory = sqlite3.Row
+    try:
+        all_chain = chain_conn.execute(
+            'SELECT major_industry, stock_code FROM tpex_industry_chain'
+        ).fetchall()
+        topic_count_rows = chain_conn.execute(
+            'SELECT major_industry, COUNT(DISTINCT chain_topic) AS cnt '
+            'FROM tpex_industry_chain GROUP BY major_industry'
+        ).fetchall()
+    finally:
+        chain_conn.close()
+
+    chain_topic_counts: dict[str, int] = {r['major_industry']: r['cnt'] for r in topic_count_rows}
+
+    industry_stocks: dict[str, set] = defaultdict(set)
+    for r in all_chain:
+        industry_stocks[r['major_industry']].add(r['stock_code'])
+
+    all_codes = list({c for codes in industry_stocks.values() for c in codes})
+    if not all_codes:
+        return []
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        nlp_counts_rows = conn.execute(
+            '''SELECT m.major_industry, COUNT(*) AS cnt
+               FROM nlp_topic_industry_map m
+               JOIN nlp_topics t ON t.id = m.topic_id
+               WHERE m.is_industry = 1 AND t.level = 'fine'
+               GROUP BY m.major_industry'''
+        ).fetchall()
+        nlp_topic_counts: dict[str, int] = {r['major_industry']: r['cnt'] for r in nlp_counts_rows}
+
+        ph = ','.join('?' * len(all_codes))
+        price_rows = conn.execute(
+            f'''SELECT stock_code,
+                       CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL) AS chg
+                FROM tw_stock_list
+                WHERE stock_code IN ({ph})
+                  AND change_pct IS NOT NULL AND change_pct != ""''',
+            all_codes,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    price_map: dict[str, float] = {r['stock_code']: r['chg'] for r in price_rows}
+
+    results = []
+    for industry, codes in industry_stocks.items():
+        changes = [price_map[c] for c in codes if c in price_map]
+        if not changes:
+            continue
+        avg_chg = sum(changes) / len(changes)
+        results.append({
+            'name':          industry,
+            'topicCount':    chain_topic_counts.get(industry, 0) + nlp_topic_counts.get(industry, 0),
+            'advance':       sum(1 for c in changes if c > 0),
+            'decline':       sum(1 for c in changes if c < 0),
+            'changePercent': round(avg_chg, 2),
+        })
+
+    sort_key = 'changePercent' if sort == 'change' else 'topicCount'
+    results.sort(key=lambda x: x[sort_key], reverse=(order != 'asc'))
+    return results
+
+
+@app.get('/api/market/industry/{name}/topics')
+def get_industry_topics(name: str):
+    chain_conn = sqlite3.connect(DB_CHAIN_PATH)
+    chain_conn.row_factory = sqlite3.Row
+    try:
+        chain_rows = chain_conn.execute(
+            'SELECT chain_topic, stock_code FROM tpex_industry_chain WHERE major_industry = ?',
+            (name,),
+        ).fetchall()
+    finally:
+        chain_conn.close()
+
+    topic_stocks: dict[str, set] = defaultdict(set)
+    for r in chain_rows:
+        topic_stocks[r['chain_topic']].add(r['stock_code'])
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        nlp_rows = conn.execute(
+            '''SELECT t.id, t.name, t.stock_count
+               FROM nlp_topics t
+               JOIN nlp_topic_industry_map m ON t.id = m.topic_id
+               WHERE m.is_industry = 1 AND m.major_industry = ? AND t.level = 'fine' ''',
+            (name,),
+        ).fetchall()
+
+        nlp_topic_ids   = [r['id'] for r in nlp_rows]
+        nlp_names       = {r['id']: r['name']        for r in nlp_rows}
+        nlp_stock_count = {r['id']: r['stock_count'] for r in nlp_rows}
+
+        nlp_stock_map: dict[int, set] = defaultdict(set)
+        if nlp_topic_ids:
+            ph = ','.join('?' * len(nlp_topic_ids))
+            for row in conn.execute(
+                f'SELECT topic_id, stock_code FROM nlp_topic_stocks WHERE topic_id IN ({ph})',
+                nlp_topic_ids,
+            ).fetchall():
+                nlp_stock_map[row['topic_id']].add(row['stock_code'])
+
+        all_codes = list(
+            {c for codes in topic_stocks.values() for c in codes}
+            | {c for codes in nlp_stock_map.values() for c in codes}
+        )
+        price_map: dict[str, float] = {}
+        if all_codes:
+            ph = ','.join('?' * len(all_codes))
+            for row in conn.execute(
+                f'''SELECT stock_code,
+                           CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL) AS chg
+                    FROM tw_stock_list
+                    WHERE stock_code IN ({ph})
+                      AND change_pct IS NOT NULL AND change_pct != ""''',
+                all_codes,
+            ).fetchall():
+                price_map[row['stock_code']] = row['chg']
+    finally:
+        conn.close()
+
+    results = []
+
+    for chain_topic, codes in topic_stocks.items():
+        changes = [price_map[c] for c in codes if c in price_map]
+        avg_chg = round(sum(changes) / len(changes), 2) if changes else 0.0
+        results.append({
+            'name':          chain_topic,
+            'source':        'tpex',
+            'changePercent': avg_chg,
+            'stockCount':    len(codes),
+        })
+
+    for tid, tname in nlp_names.items():
+        codes = nlp_stock_map.get(tid, set())
+        changes = [price_map[c] for c in codes if c in price_map]
+        avg_chg = round(sum(changes) / len(changes), 2) if changes else 0.0
+        results.append({
+            'name':          tname,
+            'source':        'nlp',
+            'changePercent': avg_chg,
+            'stockCount':    nlp_stock_count.get(tid, len(codes)),
+        })
+
+    results.sort(key=lambda x: abs(x['changePercent']), reverse=True)
+    return results

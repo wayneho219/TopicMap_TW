@@ -3,6 +3,7 @@ import os
 import json
 import datetime
 import urllib.request
+from collections import defaultdict
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -550,3 +551,204 @@ def get_topic_stocks(name: str, level: str = 'medium',
         }
         for r in rows
     ]
+
+
+@app.get('/api/market/industries')
+def get_industries(sort: str = 'change', order: str = 'desc'):
+    dir_ = 'ASC' if order == 'asc' else 'DESC'
+    col  = 'total_vol' if sort == 'volume' else 'avg_chg'
+
+    industry_codes: dict[str, list[str]] = {}
+    all_codes: list[str] = []
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            f'''
+            SELECT industry_name,
+                   AVG(CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL)) AS avg_chg,
+                   SUM(CASE WHEN CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL) > 0
+                       THEN 1 ELSE 0 END) AS up,
+                   SUM(CASE WHEN CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL) < 0
+                       THEN 1 ELSE 0 END) AS dn,
+                   SUM(COALESCE(volume, 0)) AS total_vol,
+                   GROUP_CONCAT(stock_code) AS codes
+            FROM tw_stock_list
+            WHERE close_price IS NOT NULL
+              AND change_pct IS NOT NULL AND change_pct != ""
+              AND industry_name IS NOT NULL AND industry_name != ""
+              AND stock_code NOT LIKE "0%"
+            GROUP BY industry_name
+            ORDER BY {col} {dir_}
+            ''',
+        ).fetchall()
+
+        industry_codes: dict[str, list[str]] = {
+            r['industry_name']: r['codes'].split(',') if r['codes'] else []
+            for r in rows
+        }
+        all_codes = list({c for codes in industry_codes.values() for c in codes})
+
+        # NLP topic counts via stock overlap
+        nlp_counts: dict[str, int] = defaultdict(int)
+        if all_codes:
+            ph = ','.join('?' * len(all_codes))
+            nlp_rows = conn.execute(
+                f'''SELECT s.stock_code, s.topic_id
+                    FROM nlp_topic_stocks s
+                    JOIN nlp_topic_industry_map m ON s.topic_id = m.topic_id
+                    JOIN nlp_topics t ON t.id = s.topic_id
+                    WHERE m.is_industry = 1 AND t.level = 'fine'
+                      AND s.stock_code IN ({ph})''',
+                all_codes,
+            ).fetchall()
+            code_to_nlp: dict[str, set] = defaultdict(set)
+            for nr in nlp_rows:
+                code_to_nlp[nr['stock_code']].add(nr['topic_id'])
+            for industry, codes in industry_codes.items():
+                topics: set = set()
+                for c in codes:
+                    topics |= code_to_nlp.get(c, set())
+                nlp_counts[industry] = len(topics)
+    finally:
+        conn.close()
+
+    # Chain topic counts via stock overlap (cross-DB)
+    chain_counts: dict[str, int] = defaultdict(int)
+    if all_codes:
+        chain_conn = sqlite3.connect(DB_CHAIN_PATH)
+        chain_conn.row_factory = sqlite3.Row
+        try:
+            ph = ','.join('?' * len(all_codes))
+            chain_rows = chain_conn.execute(
+                f'SELECT stock_code, chain_topic FROM tpex_industry_chain WHERE stock_code IN ({ph})',
+                all_codes,
+            ).fetchall()
+        finally:
+            chain_conn.close()
+
+        code_to_chain: dict[str, set] = defaultdict(set)
+        for cr in chain_rows:
+            code_to_chain[cr['stock_code']].add(cr['chain_topic'])
+        for industry, codes in industry_codes.items():
+            topics = set()
+            for c in codes:
+                topics |= code_to_chain.get(c, set())
+            chain_counts[industry] = len(topics)
+
+    return [
+        {
+            'name':          r['industry_name'],
+            'topicCount':    chain_counts[r['industry_name']] + nlp_counts[r['industry_name']],
+            'advance':       r['up'],
+            'decline':       r['dn'],
+            'changePercent': round(r['avg_chg'] or 0, 2),
+            'totalVolume':   r['total_vol'] or 0,
+        }
+        for r in rows
+    ]
+
+
+@app.get('/api/market/industry/{name}/topics')
+def get_industry_topics(name: str):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        # Stocks in this industry
+        industry_stocks = conn.execute(
+            '''SELECT stock_code FROM tw_stock_list
+               WHERE industry_name = ? AND close_price IS NOT NULL
+               AND stock_code NOT LIKE "0%" ''',
+            (name,),
+        ).fetchall()
+        industry_codes = [r['stock_code'] for r in industry_stocks]
+
+        if not industry_codes:
+            return []
+
+        ph = ','.join('?' * len(industry_codes))
+
+        # NLP topics with stock overlap
+        nlp_rows = conn.execute(
+            f'''SELECT DISTINCT t.id, t.name, t.stock_count
+                FROM nlp_topics t
+                JOIN nlp_topic_industry_map m ON t.id = m.topic_id
+                JOIN nlp_topic_stocks ns ON t.id = ns.topic_id
+                WHERE m.is_industry = 1 AND t.level = "fine"
+                  AND ns.stock_code IN ({ph})''',
+            industry_codes,
+        ).fetchall()
+
+        nlp_names      = {r['id']: r['name']        for r in nlp_rows}
+        nlp_stock_cnt  = {r['id']: r['stock_count'] for r in nlp_rows}
+
+        nlp_stock_map: dict[int, set] = defaultdict(set)
+        if nlp_names:
+            ph2 = ','.join('?' * len(nlp_names))
+            for row in conn.execute(
+                f'SELECT topic_id, stock_code FROM nlp_topic_stocks WHERE topic_id IN ({ph2})',
+                list(nlp_names.keys()),
+            ).fetchall():
+                nlp_stock_map[row['topic_id']].add(row['stock_code'])
+
+        # Price map for all relevant codes
+        all_price_codes = list(
+            set(industry_codes) | {c for s in nlp_stock_map.values() for c in s}
+        )
+        ph3 = ','.join('?' * len(all_price_codes))
+        price_map = {
+            r['stock_code']: r['chg']
+            for r in conn.execute(
+                f'''SELECT stock_code,
+                           CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL) AS chg
+                    FROM tw_stock_list
+                    WHERE stock_code IN ({ph3})
+                      AND change_pct IS NOT NULL AND change_pct != ""''',
+                all_price_codes,
+            ).fetchall()
+        }
+    finally:
+        conn.close()
+
+    # Chain topics via stock overlap (cross-DB)
+    chain_conn = sqlite3.connect(DB_CHAIN_PATH)
+    chain_conn.row_factory = sqlite3.Row
+    try:
+        ph = ','.join('?' * len(industry_codes))
+        chain_rows = chain_conn.execute(
+            f'SELECT chain_topic, stock_code FROM tpex_industry_chain WHERE stock_code IN ({ph})',
+            industry_codes,
+        ).fetchall()
+    finally:
+        chain_conn.close()
+
+    topic_stocks: dict[str, set] = defaultdict(set)
+    for r in chain_rows:
+        topic_stocks[r['chain_topic']].add(r['stock_code'])
+
+    results = []
+
+    for chain_topic, codes in topic_stocks.items():
+        changes = [price_map[c] for c in codes if c in price_map]
+        avg_chg = round(sum(changes) / len(changes), 2) if changes else 0.0
+        results.append({
+            'name':          chain_topic,
+            'source':        'tpex',
+            'changePercent': avg_chg,
+            'stockCount':    len(codes),
+        })
+
+    for tid, tname in nlp_names.items():
+        codes = nlp_stock_map.get(tid, set())
+        changes = [price_map[c] for c in codes if c in price_map]
+        avg_chg = round(sum(changes) / len(changes), 2) if changes else 0.0
+        results.append({
+            'name':          tname,
+            'source':        'nlp',
+            'changePercent': avg_chg,
+            'stockCount':    nlp_stock_cnt.get(tid, len(codes)),
+        })
+
+    results.sort(key=lambda x: abs(x['changePercent']), reverse=True)
+    return results

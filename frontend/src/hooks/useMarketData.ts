@@ -82,27 +82,50 @@ export function useRecurringTW() {
   return items
 }
 
-export interface SectorData {
+
+export type IndustrySortKey = 'change' | 'volume'
+export type IndustrySortOrder = 'asc' | 'desc'
+
+export interface IndustryData {
   name: string
-  changePercent: number
+  topicCount: number
   advance: number
   decline: number
+  changePercent: number
   totalVolume: number
 }
 
-export function useSectors(
-  market: 'listed' | 'otc' = 'listed',
-  sort: 'change' | 'volume' = 'change',
-  order: 'asc' | 'desc' = 'desc',
-) {
-  const [sectors, setSectors] = useState<SectorData[]>([])
+export interface IndustryTopic {
+  name: string
+  source: 'tpex' | 'nlp'
+  changePercent: number
+  stockCount: number
+}
 
+export function useIndustries(
+  sort: IndustrySortKey = 'change',
+  order: IndustrySortOrder = 'desc',
+): IndustryData[] {
+  const [industries, setIndustries] = useState<IndustryData[]>([])
   useEffect(() => {
-    fetch(`/api/market/sectors?market=${market}&sort=${sort}&order=${order}`)
+    fetch(`/api/market/industries?sort=${sort}&order=${order}`)
       .then((r) => r.json())
-      .then((data: SectorData[]) => setSectors(data))
+      .then((data: IndustryData[]) => setIndustries(data))
       .catch(() => {})
-  }, [market, sort, order])
+  }, [sort, order])
+  return industries
+}
 
-  return sectors
+export function useIndustryTopics(name: string): { topics: IndustryTopic[]; loaded: boolean } {
+  const [topics, setTopics] = useState<IndustryTopic[]>([])
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    if (!name) { setTopics([]); setLoaded(false); return }
+    setLoaded(false)
+    fetch(`/api/market/industry/${encodeURIComponent(name)}/topics`)
+      .then((r) => r.json())
+      .then((data: IndustryTopic[]) => { setTopics(data); setLoaded(true) })
+      .catch(() => { setTopics([]); setLoaded(true) })
+  }, [name])
+  return { topics, loaded }
 }

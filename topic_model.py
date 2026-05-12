@@ -11,7 +11,7 @@ PHASE = "label"    → 讀取 topic_labels.json，套用標籤並輸出視覺化
 # │    "cluster" ── 分群 + 輸出命名素材      │
 # │    "label"   ── 套用標籤 + 輸出結果      │
 # └─────────────────────────────────────────┘
-PHASE = "label"
+PHASE = "cluster"
 
 # AUTO_LEVELS = True  → 自動偵測各層最佳群數（CH 分數偏好少群，通常不建議）
 # AUTO_LEVELS = False → 使用下方 LEVELS 手動指定（建議）
@@ -253,10 +253,10 @@ if PHASE == "cluster":
 elif PHASE == "label":
     print("\nPHASE 2 | 套用標籤 + 輸出視覺化")
 
-    if not os.path.exists("topic_labels.json"):
+    if not os.path.exists("labels/topic_labels.json"):
         raise FileNotFoundError("找不到 topic_labels.json，請先完成 Phase 1 命名步驟。")
 
-    with open("topic_labels.json", encoding="utf-8") as f:
+    with open("labels/topic_labels.json", encoding="utf-8") as f:
         topic_labels: dict[str, dict[str, str]] = json.load(f)
 
     # 從暫存還原分群（跳過耗時步驟）

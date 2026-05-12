@@ -60,7 +60,11 @@ def run() -> None:
 
         now = datetime.now(timezone.utc).isoformat()
         for topic in topics:
-            result = classify_topic(topic['name'])
+            try:
+                result = classify_topic(topic['name'])
+            except Exception as e:
+                print(f"  {topic['name']} → 錯誤: {e}")
+                continue
             conn.execute(
                 'INSERT OR REPLACE INTO nlp_topic_industry_map '
                 '(topic_id, is_industry, major_industry, classified_at) VALUES (?, ?, ?, ?)',

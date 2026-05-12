@@ -82,30 +82,6 @@ export function useRecurringTW() {
   return items
 }
 
-export interface SectorData {
-  name: string
-  changePercent: number
-  advance: number
-  decline: number
-  totalVolume: number
-}
-
-export function useSectors(
-  market: 'listed' | 'otc' = 'listed',
-  sort: 'change' | 'volume' = 'change',
-  order: 'asc' | 'desc' = 'desc',
-) {
-  const [sectors, setSectors] = useState<SectorData[]>([])
-
-  useEffect(() => {
-    fetch(`/api/market/sectors?market=${market}&sort=${sort}&order=${order}`)
-      .then((r) => r.json())
-      .then((data: SectorData[]) => setSectors(data))
-      .catch(() => {})
-  }, [market, sort, order])
-
-  return sectors
-}
 
 export interface IndustryData {
   name: string
@@ -137,14 +113,16 @@ export function useIndustries(
   return industries
 }
 
-export function useIndustryTopics(name: string): IndustryTopic[] {
+export function useIndustryTopics(name: string): { topics: IndustryTopic[]; loaded: boolean } {
   const [topics, setTopics] = useState<IndustryTopic[]>([])
+  const [loaded, setLoaded] = useState(false)
   useEffect(() => {
-    if (!name) { setTopics([]); return }
+    if (!name) { setTopics([]); setLoaded(false); return }
+    setLoaded(false)
     fetch(`/api/market/industry/${encodeURIComponent(name)}/topics`)
       .then((r) => r.json())
-      .then((data: IndustryTopic[]) => setTopics(data))
-      .catch(() => {})
+      .then((data: IndustryTopic[]) => { setTopics(data); setLoaded(true) })
+      .catch(() => { setTopics([]); setLoaded(true) })
   }, [name])
-  return topics
+  return { topics, loaded }
 }

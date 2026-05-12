@@ -51,7 +51,7 @@ function IndustryCard({
   expanded: boolean
   onToggle: () => void
 }) {
-  const topics = useIndustryTopics(expanded ? industry.name : '')
+  const { topics, loaded } = useIndustryTopics(expanded ? industry.name : '')
   const up = industry.changePercent >= 0
   const barW = maxChange > 0
     ? Math.round((Math.abs(industry.changePercent) / maxChange) * 100)
@@ -88,15 +88,18 @@ function IndustryCard({
         </div>
       </div>
 
-      {expanded && topics.length > 0 && (
+      {expanded && !loaded && (
+        <div className="pl-6 py-3 text-[#555] text-xs border-t border-[#252525]">載入中...</div>
+      )}
+      {expanded && loaded && topics.length === 0 && (
+        <div className="pl-6 py-3 text-[#555] text-xs border-t border-[#252525]">暫無資料</div>
+      )}
+      {expanded && loaded && topics.length > 0 && (
         <div>
           {topics.map((t) => (
             <TopicRow key={`${t.source}-${t.name}`} topic={t} />
           ))}
         </div>
-      )}
-      {expanded && topics.length === 0 && (
-        <div className="pl-6 py-3 text-[#555] text-xs border-t border-[#252525]">載入中...</div>
       )}
     </div>
   )

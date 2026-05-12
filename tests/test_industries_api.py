@@ -46,7 +46,8 @@ def _seed_main(path: str):
             VALUES
             ('2330','台積電',1000.0,'+35','+3.50%',42000000),
             ('2454','聯發科', 800.0,'+10','+1.25%',10000000),
-            ('3481','群創',  15.0,'-0.5','-3.23%', 5000000);
+            ('3481','群創',  15.0,'-0.5','-3.23%', 5000000),
+            ('9990','測試甲',50.0,'-1','-2.00%',1000000);
         INSERT INTO nlp_topics VALUES (1,'AI伺服器','fine',NULL,100000,10,2);
         INSERT INTO nlp_topic_stocks VALUES (1,'2330');
         INSERT INTO nlp_topic_stocks VALUES (1,'2454');
@@ -74,7 +75,8 @@ def _seed_chain(path: str):
             VALUES
             ('半導體','D000','半導體','D001','IC設計','2454','聯發科','2026-01-01'),
             ('半導體','D000','半導體','D001','IC設計','2330','台積電','2026-01-01'),
-            ('半導體','D000','晶圓代工','D002','晶圓廠','3481','群創','2026-01-01');
+            ('半導體','D000','晶圓代工','D002','晶圓廠','3481','群創','2026-01-01'),
+            ('電腦週邊','F000','電腦週邊','F001','主機板','9990','測試甲','2026-01-01');
     ''')
     conn.commit()
     conn.close()
@@ -102,13 +104,14 @@ def test_get_industries_returns_list(client):
     assert r.status_code == 200
     data = r.json()
     assert isinstance(data, list)
-    assert len(data) == 1
-    item = data[0]
-    assert item['name'] == '半導體'
-    assert 'topicCount' in item
-    assert 'advance' in item
-    assert 'decline' in item
-    assert 'changePercent' in item
+    assert len(data) == 2
+    names = [item['name'] for item in data]
+    assert '半導體' in names
+    semi = next(item for item in data if item['name'] == '半導體')
+    assert 'topicCount' in semi
+    assert 'advance' in semi
+    assert 'decline' in semi
+    assert 'changePercent' in semi
 
 def test_get_industries_topic_count_includes_nlp(client):
     r = client.get('/api/market/industries')
@@ -126,6 +129,15 @@ def test_get_industries_advance_decline(client):
 def test_get_industries_sort_order(client):
     r = client.get('/api/market/industries?sort=change&order=desc')
     assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 2
+    # desc order: higher changePercent first
+    assert data[0]['changePercent'] >= data[1]['changePercent']
+
+    r2 = client.get('/api/market/industries?sort=change&order=asc')
+    assert r2.status_code == 200
+    data2 = r2.json()
+    assert data2[0]['changePercent'] <= data2[1]['changePercent']
 
 # ── /api/market/industry/{name}/topics ──────────────────────────
 
@@ -146,6 +158,7 @@ def test_get_industry_topics_contains_nlp(client):
 
 def test_get_industry_topics_source_field(client):
     r = client.get('/api/market/industry/%E5%8D%8A%E5%B0%8E%E9%AB%94/topics')
+    assert r.status_code == 200
     data = r.json()
     for t in data:
         assert t['source'] in ('tpex', 'nlp')

@@ -42,12 +42,12 @@ def _seed_main(path: str):
             major_industry TEXT,
             classified_at  TEXT NOT NULL
         );
-        INSERT INTO tw_stock_list(stock_code, stock_name, close_price, change_val, change_pct, volume)
+        INSERT INTO tw_stock_list(stock_code, stock_name, industry_name, close_price, change_val, change_pct, volume)
             VALUES
-            ('2330','台積電',1000.0,'+35','+3.50%',42000000),
-            ('2454','聯發科', 800.0,'+10','+1.25%',10000000),
-            ('3481','群創',  15.0,'-0.5','-3.23%', 5000000),
-            ('9990','測試甲',50.0,'-1','-2.00%',1000000);
+            ('2330','台積電','半導體',1000.0,'+35','+3.50%',42000000),
+            ('2454','聯發科','半導體', 800.0,'+10','+1.25%',10000000),
+            ('3481','群創',  '電腦週邊', 15.0,'-0.5','-3.23%', 5000000),
+            ('9990','測試甲','電腦週邊', 50.0,'-1',  '-2.00%', 1000000);
         INSERT INTO nlp_topics VALUES (1,'AI伺服器','fine',NULL,100000,10,2);
         INSERT INTO nlp_topic_stocks VALUES (1,'2330');
         INSERT INTO nlp_topic_stocks VALUES (1,'2454');
@@ -73,10 +73,10 @@ def _seed_chain(path: str):
         );
         INSERT INTO tpex_industry_chain(major_industry,chain_ic,chain_topic,segment_code,segment_name,stock_code,stock_name,scraped_at)
             VALUES
-            ('半導體','D000','半導體','D001','IC設計','2454','聯發科','2026-01-01'),
-            ('半導體','D000','半導體','D001','IC設計','2330','台積電','2026-01-01'),
-            ('半導體','D000','晶圓代工','D002','晶圓廠','3481','群創','2026-01-01'),
-            ('電腦週邊','F000','電腦週邊','F001','主機板','9990','測試甲','2026-01-01');
+            ('半導體','D000','IC設計','D001','IC設計','2454','聯發科','2026-01-01'),
+            ('半導體','D000','IC設計','D001','IC設計','2330','台積電','2026-01-01'),
+            ('電腦週邊','F000','主機板','F001','主機板','3481','群創','2026-01-01'),
+            ('電腦週邊','F000','主機板','F001','主機板','9990','測試甲','2026-01-01');
     ''')
     conn.commit()
     conn.close()
@@ -116,26 +116,27 @@ def test_get_industries_returns_list(client):
 def test_get_industries_topic_count_includes_nlp(client):
     r = client.get('/api/market/industries')
     data = r.json()
-    # chain_topics: 半導體, 晶圓代工 = 2, NLP: AI伺服器 = 1 → total 3
-    assert data[0]['topicCount'] == 3
+    semi = next(item for item in data if item['name'] == '半導體')
+    # chain_topic: IC設計 = 1, NLP: AI伺服器 = 1 → total 2
+    assert semi['topicCount'] == 2
 
 def test_get_industries_advance_decline(client):
     r = client.get('/api/market/industries')
     data = r.json()
-    # 2330 +3.50%, 2454 +1.25% → advance=2; 3481 -3.23% → decline=1
-    assert data[0]['advance'] == 2
-    assert data[0]['decline'] == 1
+    semi = next(item for item in data if item['name'] == '半導體')
+    # 2330 +3.50%, 2454 +1.25% → advance=2, decline=0
+    assert semi['advance'] == 2
+    assert semi['decline'] == 0
 
 def test_get_industries_sort_order(client):
     r = client.get('/api/market/industries?sort=change&order=desc')
     assert r.status_code == 200
     data = r.json()
     assert len(data) == 2
-    # desc order: higher changePercent first
+    # desc: 半導體 avg +2.375% > 電腦週邊 avg -2.615%
     assert data[0]['changePercent'] >= data[1]['changePercent']
 
     r2 = client.get('/api/market/industries?sort=change&order=asc')
-    assert r2.status_code == 200
     data2 = r2.json()
     assert data2[0]['changePercent'] <= data2[1]['changePercent']
 
@@ -146,8 +147,10 @@ def test_get_industry_topics_contains_tpex(client):
     assert r.status_code == 200
     data = r.json()
     names = [t['name'] for t in data]
-    assert '半導體' in names
-    assert '晶圓代工' in names
+    # IC設計 is for 半導體 stocks (2330, 2454)
+    assert 'IC設計' in names
+    # 主機板 is for 電腦週邊 stocks — should NOT appear under 半導體
+    assert '主機板' not in names
 
 def test_get_industry_topics_contains_nlp(client):
     r = client.get('/api/market/industry/%E5%8D%8A%E5%B0%8E%E9%AB%94/topics')

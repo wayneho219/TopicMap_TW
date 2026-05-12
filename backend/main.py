@@ -558,6 +558,9 @@ def get_industries(sort: str = 'change', order: str = 'desc'):
     dir_ = 'ASC' if order == 'asc' else 'DESC'
     col  = 'total_vol' if sort == 'volume' else 'avg_chg'
 
+    industry_codes: dict[str, list[str]] = {}
+    all_codes: list[str] = []
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
@@ -595,7 +598,9 @@ def get_industries(sort: str = 'change', order: str = 'desc'):
                 f'''SELECT s.stock_code, s.topic_id
                     FROM nlp_topic_stocks s
                     JOIN nlp_topic_industry_map m ON s.topic_id = m.topic_id
-                    WHERE m.is_industry = 1 AND s.stock_code IN ({ph})''',
+                    JOIN nlp_topics t ON t.id = s.topic_id
+                    WHERE m.is_industry = 1 AND t.level = 'fine'
+                      AND s.stock_code IN ({ph})''',
                 all_codes,
             ).fetchall()
             code_to_nlp: dict[str, set] = defaultdict(set)

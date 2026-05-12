@@ -112,6 +112,9 @@ def test_get_industries_returns_list(client):
     assert 'advance' in semi
     assert 'decline' in semi
     assert 'changePercent' in semi
+    assert 'totalVolume' in semi
+    # 2330 vol=42000000, 2454 vol=10000000
+    assert semi['totalVolume'] == 52000000
 
 def test_get_industries_topic_count_includes_nlp(client):
     r = client.get('/api/market/industries')
@@ -139,6 +142,19 @@ def test_get_industries_sort_order(client):
     r2 = client.get('/api/market/industries?sort=change&order=asc')
     data2 = r2.json()
     assert data2[0]['changePercent'] <= data2[1]['changePercent']
+
+def test_get_industries_sort_by_volume(client):
+    r = client.get('/api/market/industries?sort=volume&order=desc')
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 2
+    # 半導體 total 52000000 > 電腦週邊 total 6000000
+    assert data[0]['name'] == '半導體'
+    assert data[0]['totalVolume'] >= data[1]['totalVolume']
+
+    r2 = client.get('/api/market/industries?sort=volume&order=asc')
+    data2 = r2.json()
+    assert data2[0]['totalVolume'] <= data2[1]['totalVolume']
 
 # ── /api/market/industry/{name}/topics ──────────────────────────
 

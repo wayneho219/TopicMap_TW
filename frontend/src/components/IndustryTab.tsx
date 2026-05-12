@@ -3,11 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { ChevronRight, ArrowDown, ArrowUp } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useIndustries, useIndustryTopics } from '../hooks/useMarketData'
-import type { IndustryData, IndustryTopic } from '../hooks/useMarketData'
+import type { IndustryData, IndustryTopic, IndustrySortKey, IndustrySortOrder } from '../hooks/useMarketData'
 
 const sortTabs = ['漲跌幅', '成交量'] as const
-type SortKey = 'change' | 'volume'
-type SortOrder = 'asc' | 'desc'
 
 function TopicRow({ topic }: { topic: IndustryTopic }) {
   const navigate = useNavigate()
@@ -111,12 +109,13 @@ function IndustryCard({
 
 export function IndustryTab() {
   const [sortIdx, setSortIdx] = useState(0)
-  const [order, setOrder] = useState<SortOrder>('desc')
+  const [order, setOrder] = useState<IndustrySortOrder>('desc')
   const [expandedName, setExpandedName] = useState<string | null>(null)
 
-  const sort: SortKey = sortIdx === 0 ? 'change' : 'volume'
+  const sort: IndustrySortKey = sortIdx === 0 ? 'change' : 'volume'
 
   function handleSortTab(i: number) {
+    setExpandedName(null)
     if (i === sortIdx) {
       setOrder((o) => (o === 'desc' ? 'asc' : 'desc'))
     } else {

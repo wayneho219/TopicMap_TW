@@ -83,6 +83,9 @@ export function useRecurringTW() {
 }
 
 
+export type IndustrySortKey = 'change' | 'volume'
+export type IndustrySortOrder = 'asc' | 'desc'
+
 export interface IndustryData {
   name: string
   topicCount: number
@@ -100,8 +103,8 @@ export interface IndustryTopic {
 }
 
 export function useIndustries(
-  sort: 'change' | 'volume' = 'change',
-  order: 'asc' | 'desc' = 'desc',
+  sort: IndustrySortKey = 'change',
+  order: IndustrySortOrder = 'desc',
 ): IndustryData[] {
   const [industries, setIndustries] = useState<IndustryData[]>([])
   useEffect(() => {

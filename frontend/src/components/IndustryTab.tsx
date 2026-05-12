@@ -1,9 +1,13 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, ArrowDown, ArrowUp } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useIndustries, useIndustryTopics } from '../hooks/useMarketData'
 import type { IndustryData, IndustryTopic } from '../hooks/useMarketData'
+
+const sortTabs = ['漲跌幅', '成交量'] as const
+type SortKey = 'change' | 'volume'
+type SortOrder = 'asc' | 'desc'
 
 function TopicRow({ topic }: { topic: IndustryTopic }) {
   const navigate = useNavigate()
@@ -106,29 +110,65 @@ function IndustryCard({
 }
 
 export function IndustryTab() {
-  const industries = useIndustries()
+  const [sortIdx, setSortIdx] = useState(0)
+  const [order, setOrder] = useState<SortOrder>('desc')
   const [expandedName, setExpandedName] = useState<string | null>(null)
-  const maxChange = industries.length > 0
-    ? Math.max(...industries.map((i) => Math.abs(i.changePercent)))
-    : 1
+
+  const sort: SortKey = sortIdx === 0 ? 'change' : 'volume'
+
+  function handleSortTab(i: number) {
+    if (i === sortIdx) {
+      setOrder((o) => (o === 'desc' ? 'asc' : 'desc'))
+    } else {
+      setSortIdx(i)
+      setOrder('desc')
+    }
+  }
+
+  const industries = useIndustries(sort, order)
+  const OrderIcon = order === 'desc' ? ArrowDown : ArrowUp
+  const maxChange =
+    industries.length > 0 ? Math.max(...industries.map((i) => Math.abs(i.changePercent))) : 1
 
   if (industries.length === 0) {
     return <div className="text-[#666] text-sm text-center pt-10">載入中...</div>
   }
 
   return (
-    <div className="space-y-2">
-      {industries.map((industry) => (
-        <IndustryCard
-          key={industry.name}
-          industry={industry}
-          maxChange={maxChange}
-          expanded={expandedName === industry.name}
-          onToggle={() =>
-            setExpandedName((prev) => (prev === industry.name ? null : industry.name))
-          }
-        />
-      ))}
+    <div>
+      {/* Sort tabs */}
+      <div className="flex border-b border-[#2e2e2e] mb-3">
+        {sortTabs.map((t, i) => (
+          <button
+            key={t}
+            onClick={() => handleSortTab(i)}
+            className={clsx(
+              'flex items-center gap-1 mr-5 pb-2.5 text-sm font-medium relative',
+              i === sortIdx ? 'text-[#2dba6a]' : 'text-[#888]',
+            )}
+          >
+            {t}
+            {i === sortIdx && <OrderIcon size={12} />}
+            {i === sortIdx && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#2dba6a] rounded-full" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        {industries.map((industry) => (
+          <IndustryCard
+            key={industry.name}
+            industry={industry}
+            maxChange={maxChange}
+            expanded={expandedName === industry.name}
+            onToggle={() =>
+              setExpandedName((prev) => (prev === industry.name ? null : industry.name))
+            }
+          />
+        ))}
+      </div>
     </div>
   )
 }

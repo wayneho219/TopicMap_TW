@@ -47,20 +47,32 @@ The script runs in two phases controlled by the `PHASE` variable at the top of t
 ```bash
 # Set PHASE = "cluster" at top of topic_model.py, then:
 python topic_model.py
-# Outputs: label_input.txt (for human/LLM labeling), label_template.json
+# Outputs: labels/label_input.txt (for human/LLM labeling), labels/label_template.json
 ```
 
 **Phase 2 — Label** (apply labels and visualize):
 ```bash
-# 1. Fill in label_template.json and save as topic_labels.json
+# 1. Fill in labels/label_template.json and save as labels/topic_labels.json
 # 2. Set PHASE = "label" at top of topic_model.py, then:
 python topic_model.py
-# Outputs: tsne_*.html, topics_*.csv, result_all.csv, tree_*.html, dendrogram.html
+# Outputs: output/tsne_*.html, output/topics_*.csv, output/result_all.csv, output/tree_*.html, output/dendrogram.html
 ```
 
 **Input required:** `articles.csv` with columns `ArticleText`, `ArticleCreateTime`, `StockId`.
 
-**Caching:** Embeddings are cached to `_embeddings.npy` to avoid recomputation. Delete this file to force re-embedding.
+### Dashboard (`dashboard.py`)
+
+先完成 Phase 2，再執行：
+```bash
+python dashboard.py
+```
+
+輸出 `output/dashboard.html`（自動開啟瀏覽器）。包含三個分區：
+- 主題熱度排行（橫向長條圖）
+- 熱度 × 漲跌幅散點圖
+- 個股主題明細表
+
+**Caching:** Embeddings are cached to `cache/_embeddings.npy` to avoid recomputation. Delete this file to force re-embedding.
 
 ## Architecture
 
@@ -71,13 +83,13 @@ RSS Feeds → rss_scraper.py → articles.csv
                                   ↓
                           topic_model.py (Phase 1: cluster)
                                   ↓
-                          label_input.txt / label_template.json
+                          labels/label_input.txt / labels/label_template.json
                                   ↓
-                          [Human/LLM labels → topic_labels.json]
+                          [Human/LLM labels → labels/topic_labels.json]
                                   ↓
                           topic_model.py (Phase 2: label)
                                   ↓
-                    result_all.csv + HTML visualizations
+                    output/result_all.csv + output/*.html visualizations
 ```
 
 ### Topic Modeling Pipeline (topic_model.py)
@@ -90,9 +102,17 @@ RSS Feeds → rss_scraper.py → articles.csv
 6. **Keyword extraction** — TF-IDF + jieba tokenization per cluster
 7. **Visualization** — Interactive HTML: scatter plots, icicle/treemap/sunburst hierarchy charts, dendrogram
 
+## LLM Wiki
+
+本專案維護一個 LLM wiki，位於 `wiki/`，原始來源放在 `raw/`。
+
+- 進入 wiki 前，先讀 `wiki/SCHEMA.md`（慣例設定）
+- 查詢時，先讀 `wiki/index.md` 找候選頁面
+- 操作後，將記錄附加至 `wiki/log.md`
+
 ### Intermediate Files (generated, not committed)
 
-- `_embeddings.npy` — cached sentence embeddings
-- `_checkpoint.parquet` — DataFrame with cluster assignments for Phase 2 resume
-- `_cluster_{level}.npy` — cluster assignment arrays (coarse/medium/fine)
-- `_linkage.npy` — Ward linkage matrix for dendrogram
+- `cache/_embeddings.npy` — cached sentence embeddings
+- `cache/_checkpoint.parquet` — DataFrame with cluster assignments for Phase 2 resume
+- `cache/_cluster_{level}.npy` — cluster assignment arrays (coarse/medium/fine)
+- `cache/_linkage.npy` — Ward linkage matrix for dendrogram

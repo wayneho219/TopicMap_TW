@@ -284,17 +284,19 @@ def get_sector_stocks(name: str, sort: str = 'change', order: str = 'desc'):
 
 @app.get('/api/market/chain/{name}/stocks')
 def get_chain_stocks(name: str, sort: str = 'change', order: str = 'desc'):
-    chain_conn = sqlite3.connect(DB_CHAIN_PATH)
-    chain_conn.row_factory = sqlite3.Row
     try:
-        chain_rows = chain_conn.execute(
-            'SELECT DISTINCT stock_code FROM tpex_industry_chain WHERE chain_topic = ?',
-            (name,),
-        ).fetchall()
-    finally:
-        chain_conn.close()
-
-    codes = [r['stock_code'] for r in chain_rows]
+        chain_conn = sqlite3.connect(DB_CHAIN_PATH)
+        chain_conn.row_factory = sqlite3.Row
+        try:
+            chain_rows = chain_conn.execute(
+                'SELECT DISTINCT stock_code FROM tpex_industry_chain WHERE chain_topic = ?',
+                (name,),
+            ).fetchall()
+        finally:
+            chain_conn.close()
+        codes = [r['stock_code'] for r in chain_rows]
+    except (sqlite3.OperationalError, FileNotFoundError):
+        codes = []
     if not codes:
         return []
 
@@ -593,49 +595,55 @@ def get_industries(sort: str = 'change', order: str = 'desc'):
         # NLP topic counts via stock overlap
         nlp_counts: dict[str, int] = defaultdict(int)
         if all_codes:
-            ph = ','.join('?' * len(all_codes))
-            nlp_rows = conn.execute(
-                f'''SELECT s.stock_code, s.topic_id
-                    FROM nlp_topic_stocks s
-                    JOIN nlp_topic_industry_map m ON s.topic_id = m.topic_id
-                    JOIN nlp_topics t ON t.id = s.topic_id
-                    WHERE m.is_industry = 1 AND t.level = 'fine'
-                      AND s.stock_code IN ({ph})''',
-                all_codes,
-            ).fetchall()
-            code_to_nlp: dict[str, set] = defaultdict(set)
-            for nr in nlp_rows:
-                code_to_nlp[nr['stock_code']].add(nr['topic_id'])
-            for industry, codes in industry_codes.items():
-                topics: set = set()
-                for c in codes:
-                    topics |= code_to_nlp.get(c, set())
-                nlp_counts[industry] = len(topics)
+            try:
+                ph = ','.join('?' * len(all_codes))
+                nlp_rows = conn.execute(
+                    f'''SELECT s.stock_code, s.topic_id
+                        FROM nlp_topic_stocks s
+                        JOIN nlp_topic_industry_map m ON s.topic_id = m.topic_id
+                        JOIN nlp_topics t ON t.id = s.topic_id
+                        WHERE m.is_industry = 1 AND t.level = 'fine'
+                          AND s.stock_code IN ({ph})''',
+                    all_codes,
+                ).fetchall()
+                code_to_nlp: dict[str, set] = defaultdict(set)
+                for nr in nlp_rows:
+                    code_to_nlp[nr['stock_code']].add(nr['topic_id'])
+                for industry, codes in industry_codes.items():
+                    topics: set = set()
+                    for c in codes:
+                        topics |= code_to_nlp.get(c, set())
+                    nlp_counts[industry] = len(topics)
+            except sqlite3.OperationalError:
+                pass
     finally:
         conn.close()
 
     # Chain topic counts via stock overlap (cross-DB)
     chain_counts: dict[str, int] = defaultdict(int)
     if all_codes:
-        chain_conn = sqlite3.connect(DB_CHAIN_PATH)
-        chain_conn.row_factory = sqlite3.Row
         try:
-            ph = ','.join('?' * len(all_codes))
-            chain_rows = chain_conn.execute(
-                f'SELECT stock_code, chain_topic FROM tpex_industry_chain WHERE stock_code IN ({ph})',
-                all_codes,
-            ).fetchall()
-        finally:
-            chain_conn.close()
+            chain_conn = sqlite3.connect(DB_CHAIN_PATH)
+            chain_conn.row_factory = sqlite3.Row
+            try:
+                ph = ','.join('?' * len(all_codes))
+                chain_rows = chain_conn.execute(
+                    f'SELECT stock_code, chain_topic FROM tpex_industry_chain WHERE stock_code IN ({ph})',
+                    all_codes,
+                ).fetchall()
+            finally:
+                chain_conn.close()
 
-        code_to_chain: dict[str, set] = defaultdict(set)
-        for cr in chain_rows:
-            code_to_chain[cr['stock_code']].add(cr['chain_topic'])
-        for industry, codes in industry_codes.items():
-            topics = set()
-            for c in codes:
-                topics |= code_to_chain.get(c, set())
-            chain_counts[industry] = len(topics)
+            code_to_chain: dict[str, set] = defaultdict(set)
+            for cr in chain_rows:
+                code_to_chain[cr['stock_code']].add(cr['chain_topic'])
+            for industry, codes in industry_codes.items():
+                topics = set()
+                for c in codes:
+                    topics |= code_to_chain.get(c, set())
+                chain_counts[industry] = len(topics)
+        except (sqlite3.OperationalError, FileNotFoundError):
+            pass
 
     return [
         {
@@ -670,15 +678,18 @@ def get_industry_topics(name: str):
         ph = ','.join('?' * len(industry_codes))
 
         # NLP topics with stock overlap
-        nlp_rows = conn.execute(
-            f'''SELECT DISTINCT t.id, t.name, t.stock_count
-                FROM nlp_topics t
-                JOIN nlp_topic_industry_map m ON t.id = m.topic_id
-                JOIN nlp_topic_stocks ns ON t.id = ns.topic_id
-                WHERE m.is_industry = 1 AND t.level = "fine"
-                  AND ns.stock_code IN ({ph})''',
-            industry_codes,
-        ).fetchall()
+        try:
+            nlp_rows = conn.execute(
+                f'''SELECT DISTINCT t.id, t.name, t.stock_count
+                    FROM nlp_topics t
+                    JOIN nlp_topic_industry_map m ON t.id = m.topic_id
+                    JOIN nlp_topic_stocks ns ON t.id = ns.topic_id
+                    WHERE m.is_industry = 1 AND t.level = "fine"
+                      AND ns.stock_code IN ({ph})''',
+                industry_codes,
+            ).fetchall()
+        except sqlite3.OperationalError:
+            nlp_rows = []
 
         nlp_names      = {r['id']: r['name']        for r in nlp_rows}
         nlp_stock_cnt  = {r['id']: r['stock_count'] for r in nlp_rows}
@@ -712,20 +723,23 @@ def get_industry_topics(name: str):
         conn.close()
 
     # Chain topics via stock overlap (cross-DB)
-    chain_conn = sqlite3.connect(DB_CHAIN_PATH)
-    chain_conn.row_factory = sqlite3.Row
-    try:
-        ph = ','.join('?' * len(industry_codes))
-        chain_rows = chain_conn.execute(
-            f'SELECT chain_topic, stock_code FROM tpex_industry_chain WHERE stock_code IN ({ph})',
-            industry_codes,
-        ).fetchall()
-    finally:
-        chain_conn.close()
-
     topic_stocks: dict[str, set] = defaultdict(set)
-    for r in chain_rows:
-        topic_stocks[r['chain_topic']].add(r['stock_code'])
+    try:
+        chain_conn = sqlite3.connect(DB_CHAIN_PATH)
+        chain_conn.row_factory = sqlite3.Row
+        try:
+            ph = ','.join('?' * len(industry_codes))
+            chain_rows = chain_conn.execute(
+                f'SELECT chain_topic, stock_code FROM tpex_industry_chain WHERE stock_code IN ({ph})',
+                industry_codes,
+            ).fetchall()
+        finally:
+            chain_conn.close()
+
+        for r in chain_rows:
+            topic_stocks[r['chain_topic']].add(r['stock_code'])
+    except (sqlite3.OperationalError, FileNotFoundError):
+        pass
 
     results = []
 

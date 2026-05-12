@@ -1,6 +1,6 @@
 # EventCorr pipeline
 cache/
-output/
+output/*.html
 articles.csv
 
 # Byte-compiled / optimized / DLL files

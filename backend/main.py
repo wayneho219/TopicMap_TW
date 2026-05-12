@@ -593,7 +593,8 @@ def get_industries(sort: str = 'change', order: str = 'desc'):
         ph = ','.join('?' * len(all_codes))
         price_rows = conn.execute(
             f'''SELECT stock_code,
-                       CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL) AS chg
+                       CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL) AS chg,
+                       COALESCE(volume, 0) AS vol
                 FROM tw_stock_list
                 WHERE stock_code IN ({ph})
                   AND change_pct IS NOT NULL AND change_pct != ""''',
@@ -603,6 +604,7 @@ def get_industries(sort: str = 'change', order: str = 'desc'):
         conn.close()
 
     price_map: dict[str, float] = {r['stock_code']: r['chg'] for r in price_rows}
+    volume_map: dict[str, int]   = {r['stock_code']: r['vol'] for r in price_rows}
 
     results = []
     for industry, codes in industry_stocks.items():
@@ -610,15 +612,17 @@ def get_industries(sort: str = 'change', order: str = 'desc'):
         if not changes:
             continue
         avg_chg = sum(changes) / len(changes)
+        total_vol = sum(volume_map.get(c, 0) for c in codes)
         results.append({
             'name':          industry,
             'topicCount':    chain_topic_counts.get(industry, 0) + nlp_topic_counts.get(industry, 0),
             'advance':       sum(1 for c in changes if c > 0),
             'decline':       sum(1 for c in changes if c < 0),
             'changePercent': round(avg_chg, 2),
+            'totalVolume':   total_vol,
         })
 
-    sort_key = 'changePercent' if sort == 'change' else 'topicCount'
+    sort_key = 'changePercent' if sort == 'change' else 'totalVolume'
     results.sort(key=lambda x: x[sort_key], reverse=(order != 'asc'))
     return results
 

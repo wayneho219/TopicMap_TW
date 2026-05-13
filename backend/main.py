@@ -284,17 +284,19 @@ def get_sector_stocks(name: str, sort: str = 'change', order: str = 'desc'):
 
 @app.get('/api/market/chain/{name}/stocks')
 def get_chain_stocks(name: str, sort: str = 'change', order: str = 'desc'):
-    chain_conn = sqlite3.connect(DB_CHAIN_PATH)
-    chain_conn.row_factory = sqlite3.Row
     try:
-        chain_rows = chain_conn.execute(
-            'SELECT DISTINCT stock_code FROM tpex_industry_chain WHERE chain_topic = ?',
-            (name,),
-        ).fetchall()
-    finally:
-        chain_conn.close()
-
-    codes = [r['stock_code'] for r in chain_rows]
+        chain_conn = sqlite3.connect(DB_CHAIN_PATH)
+        chain_conn.row_factory = sqlite3.Row
+        try:
+            chain_rows = chain_conn.execute(
+                'SELECT DISTINCT stock_code FROM tpex_industry_chain WHERE chain_topic = ?',
+                (name,),
+            ).fetchall()
+        finally:
+            chain_conn.close()
+        codes = [r['stock_code'] for r in chain_rows]
+    except (sqlite3.OperationalError, FileNotFoundError):
+        codes = []
     if not codes:
         return []
 
@@ -356,6 +358,27 @@ def search_stocks(q: str = ''):
         }
         for r in rows
     ]
+
+
+@app.get('/api/stocks/{stock_id}/topics')
+def get_stock_topics(stock_id: str):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        # Get fine-level NLP topics for this stock
+        rows = conn.execute(
+            '''SELECT DISTINCT t.id, t.name, t.level, t.parent_id, t.total_invested, t.article_count, t.stock_count
+               FROM nlp_topics t
+               JOIN nlp_topic_stocks ts ON t.id = ts.topic_id
+               WHERE ts.stock_code = ? AND t.level = 'fine'
+               ORDER BY ts.total_invested DESC
+            ''',
+            (stock_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return [_topic_row(r) for r in rows]
 
 
 @app.get('/api/stocks/{stock_id}/intraday')
@@ -490,8 +513,17 @@ def get_topic_children(name: str):
         parent = conn.execute(
             "SELECT id FROM nlp_topics WHERE name = ? AND level = 'medium'", (name,)
         ).fetchone()
+
+        # If not found, try case-insensitive match
         if parent is None:
-            raise HTTPException(status_code=404, detail='Topic not found')
+            parent = conn.execute(
+                "SELECT id FROM nlp_topics WHERE LOWER(name) = LOWER(?) AND level = 'medium'",
+                (name,)
+            ).fetchone()
+
+        if parent is None:
+            raise HTTPException(status_code=404, detail=f'Topic "{name}" not found')
+
         rows = conn.execute(
             'SELECT id, name, level, parent_id, total_invested, article_count, stock_count '
             'FROM nlp_topics WHERE parent_id = ? ORDER BY total_invested DESC',
@@ -503,6 +535,7 @@ def get_topic_children(name: str):
 
 
 _TOPIC_SORT: dict[str, str] = {
+    'invested': 'ts.total_invested',
     'change': 'CAST(REPLACE(REPLACE(s.change_pct,"+",""),"%","") AS REAL)',
     'volume': 's.volume',
     'heat':   'ts.article_count',
@@ -519,11 +552,21 @@ def get_topic_stocks(name: str, level: str = 'medium',
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
+        # Try exact match first, then fuzzy match
         topic = conn.execute(
             'SELECT id FROM nlp_topics WHERE name = ? AND level = ?', (name, level)
         ).fetchone()
+
+        # If not found, try case-insensitive or partial match
         if topic is None:
-            raise HTTPException(status_code=404, detail='Topic not found')
+            topic = conn.execute(
+                'SELECT id FROM nlp_topics WHERE LOWER(name) = LOWER(?) AND level = ?',
+                (name, level)
+            ).fetchone()
+
+        if topic is None:
+            raise HTTPException(status_code=404, detail=f'Topic "{name}" not found at level {level}')
+
         rows = conn.execute(
             f'''
             SELECT s.stock_code, s.stock_name, s.close_price,
@@ -556,7 +599,12 @@ def get_topic_stocks(name: str, level: str = 'medium',
 @app.get('/api/market/industries')
 def get_industries(sort: str = 'change', order: str = 'desc'):
     dir_ = 'ASC' if order == 'asc' else 'DESC'
-    col  = 'total_vol' if sort == 'volume' else 'avg_chg'
+    if sort == 'volume':
+        col = 'total_vol'
+    elif sort == 'invested':
+        col = 'total_invested'
+    else:
+        col = 'avg_chg'
 
     industry_codes: dict[str, list[str]] = {}
     all_codes: list[str] = []
@@ -573,13 +621,15 @@ def get_industries(sort: str = 'change', order: str = 'desc'):
                    SUM(CASE WHEN CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL) < 0
                        THEN 1 ELSE 0 END) AS dn,
                    SUM(COALESCE(volume, 0)) AS total_vol,
-                   GROUP_CONCAT(stock_code) AS codes
-            FROM tw_stock_list
-            WHERE close_price IS NOT NULL
-              AND change_pct IS NOT NULL AND change_pct != ""
-              AND industry_name IS NOT NULL AND industry_name != ""
-              AND stock_code NOT LIKE "0%"
-            GROUP BY industry_name
+                   COALESCE(SUM(ts.total_invested), 0) AS total_invested,
+                   GROUP_CONCAT(t.stock_code) AS codes
+            FROM tw_stock_list t
+            LEFT JOIN nlp_topic_stocks ts ON t.stock_code = ts.stock_code
+            WHERE t.close_price IS NOT NULL
+              AND t.change_pct IS NOT NULL AND t.change_pct != ""
+              AND t.industry_name IS NOT NULL AND t.industry_name != ""
+              AND t.stock_code NOT LIKE "0%"
+            GROUP BY t.industry_name
             ORDER BY {col} {dir_}
             ''',
         ).fetchall()
@@ -593,49 +643,54 @@ def get_industries(sort: str = 'change', order: str = 'desc'):
         # NLP topic counts via stock overlap
         nlp_counts: dict[str, int] = defaultdict(int)
         if all_codes:
-            ph = ','.join('?' * len(all_codes))
-            nlp_rows = conn.execute(
-                f'''SELECT s.stock_code, s.topic_id
-                    FROM nlp_topic_stocks s
-                    JOIN nlp_topic_industry_map m ON s.topic_id = m.topic_id
-                    JOIN nlp_topics t ON t.id = s.topic_id
-                    WHERE m.is_industry = 1 AND t.level = 'fine'
-                      AND s.stock_code IN ({ph})''',
-                all_codes,
-            ).fetchall()
-            code_to_nlp: dict[str, set] = defaultdict(set)
-            for nr in nlp_rows:
-                code_to_nlp[nr['stock_code']].add(nr['topic_id'])
-            for industry, codes in industry_codes.items():
-                topics: set = set()
-                for c in codes:
-                    topics |= code_to_nlp.get(c, set())
-                nlp_counts[industry] = len(topics)
+            try:
+                ph = ','.join('?' * len(all_codes))
+                nlp_rows = conn.execute(
+                    f'''SELECT DISTINCT s.stock_code, s.topic_id
+                        FROM nlp_topic_stocks s
+                        JOIN nlp_topics t ON t.id = s.topic_id
+                        WHERE t.level = 'fine'
+                          AND s.stock_code IN ({ph})''',
+                    all_codes,
+                ).fetchall()
+                code_to_nlp: dict[str, set] = defaultdict(set)
+                for nr in nlp_rows:
+                    code_to_nlp[nr['stock_code']].add(nr['topic_id'])
+                for industry, codes in industry_codes.items():
+                    topics: set = set()
+                    for c in codes:
+                        topics |= code_to_nlp.get(c, set())
+                    nlp_counts[industry] = len(topics)
+            except sqlite3.OperationalError:
+                pass
     finally:
         conn.close()
 
     # Chain topic counts via stock overlap (cross-DB)
     chain_counts: dict[str, int] = defaultdict(int)
     if all_codes:
-        chain_conn = sqlite3.connect(DB_CHAIN_PATH)
-        chain_conn.row_factory = sqlite3.Row
         try:
-            ph = ','.join('?' * len(all_codes))
-            chain_rows = chain_conn.execute(
-                f'SELECT stock_code, chain_topic FROM tpex_industry_chain WHERE stock_code IN ({ph})',
-                all_codes,
-            ).fetchall()
-        finally:
-            chain_conn.close()
+            chain_conn = sqlite3.connect(DB_CHAIN_PATH)
+            chain_conn.row_factory = sqlite3.Row
+            try:
+                ph = ','.join('?' * len(all_codes))
+                chain_rows = chain_conn.execute(
+                    f'SELECT stock_code, chain_topic FROM tpex_industry_chain WHERE stock_code IN ({ph})',
+                    all_codes,
+                ).fetchall()
+            finally:
+                chain_conn.close()
 
-        code_to_chain: dict[str, set] = defaultdict(set)
-        for cr in chain_rows:
-            code_to_chain[cr['stock_code']].add(cr['chain_topic'])
-        for industry, codes in industry_codes.items():
-            topics = set()
-            for c in codes:
-                topics |= code_to_chain.get(c, set())
-            chain_counts[industry] = len(topics)
+            code_to_chain: dict[str, set] = defaultdict(set)
+            for cr in chain_rows:
+                code_to_chain[cr['stock_code']].add(cr['chain_topic'])
+            for industry, codes in industry_codes.items():
+                topics = set()
+                for c in codes:
+                    topics |= code_to_chain.get(c, set())
+                chain_counts[industry] = len(topics)
+        except (sqlite3.OperationalError, FileNotFoundError):
+            pass
 
     return [
         {
@@ -645,9 +700,30 @@ def get_industries(sort: str = 'change', order: str = 'desc'):
             'decline':       r['dn'],
             'changePercent': round(r['avg_chg'] or 0, 2),
             'totalVolume':   r['total_vol'] or 0,
+            'totalInvested': r['total_invested'] or 0,
         }
         for r in rows
     ]
+
+
+@app.get('/api/market/industry/{name}/stocks')
+def get_industry_stocks(name: str, sort: str = 'change', order: str = 'desc'):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            f'''
+            SELECT stock_code, stock_name, close_price, change_val, change_pct, volume
+            FROM tw_stock_list
+            WHERE industry_name = ? AND close_price IS NOT NULL AND volume > 0
+              AND stock_code NOT LIKE "0%"
+            ORDER BY {_sort_expr(sort, order)}
+            ''',
+            (name,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return _stock_rows_to_list(rows)
 
 
 @app.get('/api/market/industry/{name}/topics')
@@ -670,15 +746,17 @@ def get_industry_topics(name: str):
         ph = ','.join('?' * len(industry_codes))
 
         # NLP topics with stock overlap
-        nlp_rows = conn.execute(
-            f'''SELECT DISTINCT t.id, t.name, t.stock_count
-                FROM nlp_topics t
-                JOIN nlp_topic_industry_map m ON t.id = m.topic_id
-                JOIN nlp_topic_stocks ns ON t.id = ns.topic_id
-                WHERE m.is_industry = 1 AND t.level = "fine"
-                  AND ns.stock_code IN ({ph})''',
-            industry_codes,
-        ).fetchall()
+        try:
+            nlp_rows = conn.execute(
+                f'''SELECT DISTINCT t.id, t.name, t.stock_count
+                    FROM nlp_topics t
+                    JOIN nlp_topic_stocks ns ON t.id = ns.topic_id
+                    WHERE t.level = "fine"
+                      AND ns.stock_code IN ({ph})''',
+                industry_codes,
+            ).fetchall()
+        except sqlite3.OperationalError:
+            nlp_rows = []
 
         nlp_names      = {r['id']: r['name']        for r in nlp_rows}
         nlp_stock_cnt  = {r['id']: r['stock_count'] for r in nlp_rows}
@@ -712,20 +790,23 @@ def get_industry_topics(name: str):
         conn.close()
 
     # Chain topics via stock overlap (cross-DB)
-    chain_conn = sqlite3.connect(DB_CHAIN_PATH)
-    chain_conn.row_factory = sqlite3.Row
-    try:
-        ph = ','.join('?' * len(industry_codes))
-        chain_rows = chain_conn.execute(
-            f'SELECT chain_topic, stock_code FROM tpex_industry_chain WHERE stock_code IN ({ph})',
-            industry_codes,
-        ).fetchall()
-    finally:
-        chain_conn.close()
-
     topic_stocks: dict[str, set] = defaultdict(set)
-    for r in chain_rows:
-        topic_stocks[r['chain_topic']].add(r['stock_code'])
+    try:
+        chain_conn = sqlite3.connect(DB_CHAIN_PATH)
+        chain_conn.row_factory = sqlite3.Row
+        try:
+            ph = ','.join('?' * len(industry_codes))
+            chain_rows = chain_conn.execute(
+                f'SELECT chain_topic, stock_code FROM tpex_industry_chain WHERE stock_code IN ({ph})',
+                industry_codes,
+            ).fetchall()
+        finally:
+            chain_conn.close()
+
+        for r in chain_rows:
+            topic_stocks[r['chain_topic']].add(r['stock_code'])
+    except (sqlite3.OperationalError, FileNotFoundError):
+        pass
 
     results = []
 

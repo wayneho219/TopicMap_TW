@@ -2,10 +2,35 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronRight, ArrowDown, ArrowUp } from 'lucide-react'
 import { clsx } from 'clsx'
-import { useIndustries, useIndustryTopics } from '../hooks/useMarketData'
-import type { IndustryData, IndustryTopic, IndustrySortKey, IndustrySortOrder } from '../hooks/useMarketData'
+import { useIndustries, useIndustryTopics, useIndustryStocks } from '../hooks/useMarketData'
+import type { IndustryData, IndustryTopic, IndustrySortKey, IndustrySortOrder, MarketStock } from '../hooks/useMarketData'
 
-const sortTabs = ['漲跌幅', '成交量'] as const
+const sortTabs = ['投入金額', '漲跌幅', '成交量'] as const
+
+function StockRow({ stock }: { stock: MarketStock }) {
+  const navigate = useNavigate()
+  const up = stock.changePercent >= 0
+
+  return (
+    <div
+      className="pl-6 pr-4 py-2.5 border-t border-[#252525] cursor-pointer active:opacity-70 flex items-center justify-between"
+      onClick={() => navigate(`/stock/${stock.id}`)}
+    >
+      <div className="flex flex-col gap-0.5">
+        <span className="text-[#bbb] text-sm">{stock.name}</span>
+        <span className="text-[10px] text-[#666]">{stock.id}</span>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="text-right">
+          <div className="text-xs text-[#aaa]">${stock.price}</div>
+          <div className={clsx('text-xs font-medium', up ? 'text-[#e84040]' : 'text-[#2dba6a]')}>
+            {up ? '+' : ''}{stock.changePercent.toFixed(2)}%
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function TopicRow({ topic }: { topic: IndustryTopic }) {
   const navigate = useNavigate()
@@ -46,18 +71,30 @@ function IndustryCard({
   industry,
   maxChange,
   expanded,
+  expandedView,
+  sortIdx,
   onToggle,
+  onViewChange,
 }: {
   industry: IndustryData
   maxChange: number
   expanded: boolean
+  expandedView: 'stocks' | 'topics'
+  sortIdx: number
   onToggle: () => void
+  onViewChange: (view: 'stocks' | 'topics') => void
 }) {
-  const { topics, loaded } = useIndustryTopics(expanded ? industry.name : '')
+  const { topics, loaded: topicsLoaded } = useIndustryTopics(expanded && expandedView === 'topics' ? industry.name : '')
+  const { stocks, loaded: stocksLoaded } = useIndustryStocks(expanded && expandedView === 'stocks' ? industry.name : '')
   const up = industry.changePercent >= 0
-  const barW = maxChange > 0
-    ? Math.round((Math.abs(industry.changePercent) / maxChange) * 100)
-    : 0
+  const barW = sortIdx === 0
+    ? (maxChange > 0 ? Math.round((industry.totalInvested / maxChange) * 100) : 0)
+    : sortIdx === 1
+      ? (maxChange > 0 ? Math.round((Math.abs(industry.changePercent) / maxChange) * 100) : 0)
+      : 0
+
+  const loaded = expandedView === 'topics' ? topicsLoaded : stocksLoaded
+  const isEmpty = expandedView === 'topics' ? topics.length === 0 : stocks.length === 0
 
   return (
     <div className="bg-[#1e1e1e] rounded-[10px] overflow-hidden">
@@ -65,9 +102,19 @@ function IndustryCard({
         <div className="flex items-center justify-between mb-2">
           <span className="text-white text-sm font-medium">{industry.name}</span>
           <div className="flex items-center gap-2">
-            <span className={clsx('text-base font-bold', up ? 'text-[#e84040]' : 'text-[#2dba6a]')}>
-              {up ? '+' : ''}{industry.changePercent.toFixed(2)}%
-            </span>
+            {sortIdx === 0 ? (
+              <span className="text-base font-bold text-[#3a7bd5]">
+                NT${(industry.totalInvested / 1e8).toFixed(2)}億
+              </span>
+            ) : sortIdx === 1 ? (
+              <span className={clsx('text-base font-bold', up ? 'text-[#e84040]' : 'text-[#2dba6a]')}>
+                {up ? '+' : ''}{industry.changePercent.toFixed(2)}%
+              </span>
+            ) : (
+              <span className="text-base font-bold text-[#888]">
+                {(industry.totalVolume / 1e6).toFixed(0)}M
+              </span>
+            )}
             <ChevronRight
               size={16}
               className={clsx(
@@ -79,7 +126,7 @@ function IndustryCard({
         </div>
         <div className="h-1.5 bg-[#2e2e2e] rounded-full overflow-hidden mb-2">
           <div
-            className={clsx('h-full rounded-full', up ? 'bg-[#e84040]' : 'bg-[#2dba6a]')}
+            className={clsx('h-full rounded-full', sortIdx === 0 ? 'bg-[#3a7bd5]' : up ? 'bg-[#e84040]' : 'bg-[#2dba6a]')}
             style={{ width: `${barW}%` }}
           />
         </div>
@@ -90,32 +137,70 @@ function IndustryCard({
         </div>
       </div>
 
-      {expanded && !loaded && (
-        <div className="pl-6 py-3 text-[#555] text-xs border-t border-[#252525]">載入中...</div>
-      )}
-      {expanded && loaded && topics.length === 0 && (
-        <div className="pl-6 py-3 text-[#555] text-xs border-t border-[#252525]">暫無資料</div>
-      )}
-      {expanded && loaded && topics.length > 0 && (
-        <div>
-          {topics.map((t) => (
-            <TopicRow key={`${t.source}-${t.name}`} topic={t} />
-          ))}
-        </div>
+      {expanded && (
+        <>
+          <div className="flex border-t border-[#252525]">
+            <button
+              className={clsx(
+                'flex-1 px-4 py-2 text-xs font-medium',
+                expandedView === 'stocks'
+                  ? 'border-b-2 border-[#2dba6a] text-[#2dba6a]'
+                  : 'text-[#666] border-b border-[#252525]'
+              )}
+              onClick={(e) => { e.stopPropagation(); onViewChange('stocks') }}
+            >
+              個股
+            </button>
+            <button
+              className={clsx(
+                'flex-1 px-4 py-2 text-xs font-medium',
+                expandedView === 'topics'
+                  ? 'border-b-2 border-[#2dba6a] text-[#2dba6a]'
+                  : 'text-[#666] border-b border-[#252525]'
+              )}
+              onClick={(e) => { e.stopPropagation(); onViewChange('topics') }}
+            >
+              主題
+            </button>
+          </div>
+
+          {!loaded && (
+            <div className="pl-6 py-3 text-[#555] text-xs border-t border-[#252525]">載入中...</div>
+          )}
+          {loaded && isEmpty && (
+            <div className="pl-6 py-3 text-[#555] text-xs border-t border-[#252525]">暫無資料</div>
+          )}
+          {loaded && !isEmpty && expandedView === 'stocks' && (
+            <div>
+              {stocks.map((s) => (
+                <StockRow key={s.id} stock={s} />
+              ))}
+            </div>
+          )}
+          {loaded && !isEmpty && expandedView === 'topics' && (
+            <div>
+              {topics.map((t) => (
+                <TopicRow key={`${t.source}-${t.name}`} topic={t} />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
 }
 
+type ExpandedState = { name: string; view: 'stocks' | 'topics' } | null
+
 export function IndustryTab() {
   const [sortIdx, setSortIdx] = useState(0)
   const [order, setOrder] = useState<IndustrySortOrder>('desc')
-  const [expandedName, setExpandedName] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<ExpandedState>(null)
 
-  const sort: IndustrySortKey = sortIdx === 0 ? 'change' : 'volume'
+  const sort: IndustrySortKey = sortIdx === 0 ? 'invested' : sortIdx === 1 ? 'change' : 'volume'
 
   function handleSortTab(i: number) {
-    setExpandedName(null)
+    setExpanded(null)
     if (i === sortIdx) {
       setOrder((o) => (o === 'desc' ? 'asc' : 'desc'))
     } else {
@@ -124,10 +209,27 @@ export function IndustryTab() {
     }
   }
 
+  function handleToggleExpand(name: string) {
+    if (expanded?.name === name) {
+      setExpanded(null)
+    } else {
+      setExpanded({ name, view: 'stocks' })
+    }
+  }
+
+  function handleSwitchView(view: 'stocks' | 'topics') {
+    if (expanded) {
+      setExpanded({ ...expanded, view })
+    }
+  }
+
   const industries = useIndustries(sort, order)
   const OrderIcon = order === 'desc' ? ArrowDown : ArrowUp
-  const maxChange =
-    industries.length > 0 ? Math.max(...industries.map((i) => Math.abs(i.changePercent))) : 1
+  const maxChange = industries.length > 0
+    ? sortIdx === 0
+      ? Math.max(...industries.map((i) => i.totalInvested))
+      : Math.max(...industries.map((i) => Math.abs(i.changePercent)))
+    : 1
 
   if (industries.length === 0) {
     return <div className="text-[#666] text-sm text-center pt-10">載入中...</div>
@@ -161,10 +263,11 @@ export function IndustryTab() {
             key={industry.name}
             industry={industry}
             maxChange={maxChange}
-            expanded={expandedName === industry.name}
-            onToggle={() =>
-              setExpandedName((prev) => (prev === industry.name ? null : industry.name))
-            }
+            expanded={expanded?.name === industry.name}
+            expandedView={expanded?.view || 'stocks'}
+            sortIdx={sortIdx}
+            onToggle={() => handleToggleExpand(industry.name)}
+            onViewChange={handleSwitchView}
           />
         ))}
       </div>

@@ -361,7 +361,6 @@ elif PHASE == "label":
         )
         print(f"  topics_{level}.csv")
 
-<<<<<<< HEAD
     # ── 各層主題投入金額統計 CSV ────────────────────────────────────────────
     for level in ["medium", "fine"]:
         invested_stat = (
@@ -375,49 +374,7 @@ elif PHASE == "label":
             f"invested_amount_{level}.csv", encoding="utf-8-sig"
         )
         print(f"  invested_amount_{level}.csv")
-=======
-    # ── 股價與投入金額（yfinance）────────────────────────────────────────────
-    print("\n  正在抓取股票歷史股價（yfinance）...")
-    df["close_price"] = None
-    df["volume"] = None
-    df["invested_amount"] = None
 
-    _stock_cache: dict[str, "pd.DataFrame"] = {}
-    for sid in df["stock_id"].unique():
-        try:
-            ticker = f"{str(sid).zfill(4)}.TW"
-            hist = yf.Ticker(ticker).history(period="2y")
-            if not hist.empty:
-                _stock_cache[str(sid)] = hist
-        except Exception as e:
-            print(f"  警告：{ticker} 股價抓取失敗: {e}")
-
-    for idx, row in df.iterrows():
-        sid = str(row["stock_id"])
-        art_date = pd.to_datetime(row["ArticleCreateTime"]).date()
-        if sid not in _stock_cache:
-            continue
-        hist = _stock_cache[sid]
-        valid = hist.index[hist.index.notna()]
-        matching = valid[valid.to_series().dt.date <= art_date]
-        if len(matching) == 0:
-            continue
-        closest = matching[-1]
-        if pd.isna(hist.loc[closest, "Close"]) or pd.isna(hist.loc[closest, "Volume"]):
-            continue
-        cp = float(hist.loc[closest, "Close"])
-        vol = int(hist.loc[closest, "Volume"])
-        df.at[idx, "close_price"] = cp
-        df.at[idx, "volume"] = vol
-        df.at[idx, "invested_amount"] = cp * vol
-
-    # ── 完整結果 ─────────────────────────────────────────────────────────────
-    out_cols = ["stock_id", "industry_name", "ArticleCreateTime",
-                "close_price", "volume", "invested_amount",
-                "label_medium", "label_fine"]
-    df[out_cols].to_csv("output/result_all.csv", encoding="utf-8-sig", index=False)
-    print("  output/result_all.csv")
->>>>>>> main
 
     # ── 各層主題投入金額統計 CSV ──────────────────────────────────────────────
     for level in ["medium", "fine"]:

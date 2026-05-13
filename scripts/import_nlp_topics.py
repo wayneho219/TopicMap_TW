@@ -111,6 +111,10 @@ def import_nlp_topics(csv_path: str = CSV_PATH, db_path: str = DB_PATH) -> None:
     finally:
         conn.close()
 
+    # ── 生成 conceptGroups.json ──────────────────────────────────────────────
+    from .generate_concept_groups import generate_concept_groups
+    generate_concept_groups()
+
 
 if __name__ == '__main__':
     import_nlp_topics()

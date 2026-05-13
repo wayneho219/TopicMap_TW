@@ -6,13 +6,13 @@ import { clsx } from 'clsx'
 import { useTopicStocks } from '../hooks/useTopics'
 import type { TopicSortKey } from '../hooks/useTopics'
 
-const SORT_TABS = ['漲跌幅', '成交量', '討論熱度'] as const
-const SORT_KEYS: TopicSortKey[] = ['change', 'volume', 'heat']
+const SORT_TABS = ['投入金額', '漲跌幅', '成交量', '討論熱度'] as const
+const SORT_KEYS: TopicSortKey[] = ['invested', 'change', 'volume', 'heat']
 
 function fmtInvested(n: number): string {
-  if (n >= 1e8) return `${(n / 1e8).toFixed(0)}億`
-  if (n >= 1e4) return `${(n / 1e4).toFixed(0)}萬`
-  return n.toFixed(0)
+  if (n >= 1e8) return `${(n / 1e8).toFixed(1)}億`
+  if (n >= 1e4) return `${(n / 1e4).toFixed(1)}萬`
+  return Math.round(n).toString()
 }
 
 export function TopicDetailPage() {
@@ -24,6 +24,9 @@ export function TopicDetailPage() {
   const lv: 'medium' | 'fine' = level === 'fine' ? 'fine' : 'medium'
   const sort = SORT_KEYS[sortIdx]
   const { stocks, loading } = useTopicStocks(name ?? '', lv, sort, order)
+
+  // Calculate total invested from stocks for display
+  const totalInvested = stocks.reduce((sum, s) => sum + s.topicInvested, 0)
 
   function handleSortTab(i: number) {
     if (i === sortIdx) {
@@ -44,9 +47,27 @@ export function TopicDetailPage() {
           <button onClick={() => navigate(-1)} className="text-[#888] active:opacity-60">
             <ArrowLeft size={20} />
           </button>
-          <h1 className="text-white text-lg font-semibold">{name}</h1>
-          <span className="text-[#555] text-xs">{lv === 'medium' ? '中層主題' : '細層主題'}</span>
+          <div className="flex-1">
+            <h1 className="text-white text-lg font-semibold">{name}</h1>
+            <span className="text-[#555] text-xs">{lv === 'medium' ? '中層主題' : '細層主題'}</span>
+          </div>
         </div>
+
+        {/* Investment info card */}
+        {!loading && stocks.length > 0 && (
+          <div className="mx-4 mb-3 bg-[#1e1e1e] rounded-[10px] p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[#888] text-xs block mb-1">總投入金額</span>
+                <span className="text-[#3a7bd5] text-lg font-bold">{fmtInvested(totalInvested)}</span>
+              </div>
+              <div className="text-right">
+                <span className="text-[#888] text-xs block mb-1">股票數量</span>
+                <span className="text-white text-lg font-bold">{stocks.length}</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Sort tabs */}
         <div className="flex border-b border-[#2e2e2e] px-4">

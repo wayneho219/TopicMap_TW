@@ -45,7 +45,7 @@ export function useTopicChildren(name: string): Topic[] {
   return children
 }
 
-export type TopicSortKey = 'change' | 'volume' | 'heat'
+export type TopicSortKey = 'invested' | 'change' | 'volume' | 'heat'
 
 export function useTopicStocks(
   name: string,
@@ -66,4 +66,16 @@ export function useTopicStocks(
       .catch(() => { setStocks([]); setLoading(false) })
   }, [name, level, sort, order])
   return { stocks, loading }
+}
+
+export function useStockTopics(stockId: string): Topic[] {
+  const [topics, setTopics] = useState<Topic[]>([])
+  useEffect(() => {
+    if (!stockId) { setTopics([]); return }
+    fetch(`/api/stocks/${encodeURIComponent(stockId)}/topics`)
+      .then((r) => r.json())
+      .then(setTopics)
+      .catch(() => setTopics([]))
+  }, [stockId])
+  return topics
 }

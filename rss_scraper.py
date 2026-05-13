@@ -8,7 +8,6 @@ import os
 
 # ── 設定區 ────────────────────────────────────────────────────────────────────
 PTT_BASE      = "https://www.ptt.cc"
-<<<<<<< HEAD
 PTT_BOARDS    = ["Stock"]
 MAX_PER_STOCK = 10
 
@@ -42,23 +41,6 @@ STOPWORDS = [
     "申購","承銷","承銷價",
     "扣款日","抽籤日","進場","退場"
 
-=======
-PTT_BOARDS    = ["Stock"]  # 要爬的看板，可加 "StockForum" 等
-MAX_PER_STOCK = 10          # 每支股票最多保留幾篇
-STOPWORDS = [
-    # 法人買賣超
-    "買超", "賣超", "外資", "投信", "自營商", "排行", "張數", "收盤價", "漲跌", "百萬",
-    # 月營收公告
-    "去年同期", "累計", "增減", "本月", "去年", "營收", "收入", "百分比", "自結",
-    # 財報公告
-    "每股盈餘", "EPS", "稅前", "稅後", "淨利", "損益", "現金股利",
-    # 公告垃圾
-    "公開資訊觀測站", "MOPS", "TWSE", "證交所", "櫃買中心", "重大訊息", "公告",
-    # 注意股
-    "注意交易資訊", "有價證券", "達公布標準",
-    # 股票抽籤
-    "申購", "承銷", "承銷價", "扣款日", "抽籤日", "進場", "退場",
->>>>>>> main
 ]
 
 _SESSION = requests.Session()
@@ -236,15 +218,12 @@ def fetch_and_process_ptt(
                 content = _get_article_content(url)
                 time.sleep(0.3)
 
-<<<<<<< HEAD
+
                 # ── 內文過濾 ────────────────────────────────────────
                 if _contains_stopword(content):
                     print(f"    [SKIP] 內文含停用詞：{art['title'][:40]}")
                     skipped_count += 1
-=======
-                title = art["title"]
-                if any(sw in title for sw in STOPWORDS):
->>>>>>> main
+
                     continue
 
                 batch.append({

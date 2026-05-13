@@ -106,3 +106,7 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
+
+    
+#後端:uvicorn backend.main:app --reload --port 8000
+#前端:npm run dev

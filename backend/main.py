@@ -360,6 +360,27 @@ def search_stocks(q: str = ''):
     ]
 
 
+@app.get('/api/stocks/{stock_id}/topics')
+def get_stock_topics(stock_id: str):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        # Get fine-level NLP topics for this stock
+        rows = conn.execute(
+            '''SELECT DISTINCT t.id, t.name, t.level, t.parent_id, t.total_invested, t.article_count, t.stock_count
+               FROM nlp_topics t
+               JOIN nlp_topic_stocks ts ON t.id = ts.topic_id
+               WHERE ts.stock_code = ? AND t.level = 'fine'
+               ORDER BY ts.total_invested DESC
+            ''',
+            (stock_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return [_topic_row(r) for r in rows]
+
+
 @app.get('/api/stocks/{stock_id}/intraday')
 def get_intraday(stock_id: str):
     conn = sqlite3.connect(DB_PATH)
@@ -492,8 +513,17 @@ def get_topic_children(name: str):
         parent = conn.execute(
             "SELECT id FROM nlp_topics WHERE name = ? AND level = 'medium'", (name,)
         ).fetchone()
+
+        # If not found, try case-insensitive match
         if parent is None:
-            raise HTTPException(status_code=404, detail='Topic not found')
+            parent = conn.execute(
+                "SELECT id FROM nlp_topics WHERE LOWER(name) = LOWER(?) AND level = 'medium'",
+                (name,)
+            ).fetchone()
+
+        if parent is None:
+            raise HTTPException(status_code=404, detail=f'Topic "{name}" not found')
+
         rows = conn.execute(
             'SELECT id, name, level, parent_id, total_invested, article_count, stock_count '
             'FROM nlp_topics WHERE parent_id = ? ORDER BY total_invested DESC',
@@ -505,6 +535,7 @@ def get_topic_children(name: str):
 
 
 _TOPIC_SORT: dict[str, str] = {
+    'invested': 'ts.total_invested',
     'change': 'CAST(REPLACE(REPLACE(s.change_pct,"+",""),"%","") AS REAL)',
     'volume': 's.volume',
     'heat':   'ts.article_count',
@@ -521,11 +552,21 @@ def get_topic_stocks(name: str, level: str = 'medium',
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
+        # Try exact match first, then fuzzy match
         topic = conn.execute(
             'SELECT id FROM nlp_topics WHERE name = ? AND level = ?', (name, level)
         ).fetchone()
+
+        # If not found, try case-insensitive or partial match
         if topic is None:
-            raise HTTPException(status_code=404, detail='Topic not found')
+            topic = conn.execute(
+                'SELECT id FROM nlp_topics WHERE LOWER(name) = LOWER(?) AND level = ?',
+                (name, level)
+            ).fetchone()
+
+        if topic is None:
+            raise HTTPException(status_code=404, detail=f'Topic "{name}" not found at level {level}')
+
         rows = conn.execute(
             f'''
             SELECT s.stock_code, s.stock_name, s.close_price,
@@ -558,7 +599,12 @@ def get_topic_stocks(name: str, level: str = 'medium',
 @app.get('/api/market/industries')
 def get_industries(sort: str = 'change', order: str = 'desc'):
     dir_ = 'ASC' if order == 'asc' else 'DESC'
-    col  = 'total_vol' if sort == 'volume' else 'avg_chg'
+    if sort == 'volume':
+        col = 'total_vol'
+    elif sort == 'invested':
+        col = 'total_invested'
+    else:
+        col = 'avg_chg'
 
     industry_codes: dict[str, list[str]] = {}
     all_codes: list[str] = []
@@ -575,13 +621,15 @@ def get_industries(sort: str = 'change', order: str = 'desc'):
                    SUM(CASE WHEN CAST(REPLACE(REPLACE(change_pct, "+", ""), "%", "") AS REAL) < 0
                        THEN 1 ELSE 0 END) AS dn,
                    SUM(COALESCE(volume, 0)) AS total_vol,
-                   GROUP_CONCAT(stock_code) AS codes
-            FROM tw_stock_list
-            WHERE close_price IS NOT NULL
-              AND change_pct IS NOT NULL AND change_pct != ""
-              AND industry_name IS NOT NULL AND industry_name != ""
-              AND stock_code NOT LIKE "0%"
-            GROUP BY industry_name
+                   COALESCE(SUM(ts.total_invested), 0) AS total_invested,
+                   GROUP_CONCAT(t.stock_code) AS codes
+            FROM tw_stock_list t
+            LEFT JOIN nlp_topic_stocks ts ON t.stock_code = ts.stock_code
+            WHERE t.close_price IS NOT NULL
+              AND t.change_pct IS NOT NULL AND t.change_pct != ""
+              AND t.industry_name IS NOT NULL AND t.industry_name != ""
+              AND t.stock_code NOT LIKE "0%"
+            GROUP BY t.industry_name
             ORDER BY {col} {dir_}
             ''',
         ).fetchall()
@@ -598,11 +646,10 @@ def get_industries(sort: str = 'change', order: str = 'desc'):
             try:
                 ph = ','.join('?' * len(all_codes))
                 nlp_rows = conn.execute(
-                    f'''SELECT s.stock_code, s.topic_id
+                    f'''SELECT DISTINCT s.stock_code, s.topic_id
                         FROM nlp_topic_stocks s
-                        JOIN nlp_topic_industry_map m ON s.topic_id = m.topic_id
                         JOIN nlp_topics t ON t.id = s.topic_id
-                        WHERE m.is_industry = 1 AND t.level = 'fine'
+                        WHERE t.level = 'fine'
                           AND s.stock_code IN ({ph})''',
                     all_codes,
                 ).fetchall()
@@ -653,9 +700,30 @@ def get_industries(sort: str = 'change', order: str = 'desc'):
             'decline':       r['dn'],
             'changePercent': round(r['avg_chg'] or 0, 2),
             'totalVolume':   r['total_vol'] or 0,
+            'totalInvested': r['total_invested'] or 0,
         }
         for r in rows
     ]
+
+
+@app.get('/api/market/industry/{name}/stocks')
+def get_industry_stocks(name: str, sort: str = 'change', order: str = 'desc'):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            f'''
+            SELECT stock_code, stock_name, close_price, change_val, change_pct, volume
+            FROM tw_stock_list
+            WHERE industry_name = ? AND close_price IS NOT NULL AND volume > 0
+              AND stock_code NOT LIKE "0%"
+            ORDER BY {_sort_expr(sort, order)}
+            ''',
+            (name,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return _stock_rows_to_list(rows)
 
 
 @app.get('/api/market/industry/{name}/topics')
@@ -682,9 +750,8 @@ def get_industry_topics(name: str):
             nlp_rows = conn.execute(
                 f'''SELECT DISTINCT t.id, t.name, t.stock_count
                     FROM nlp_topics t
-                    JOIN nlp_topic_industry_map m ON t.id = m.topic_id
                     JOIN nlp_topic_stocks ns ON t.id = ns.topic_id
-                    WHERE m.is_industry = 1 AND t.level = "fine"
+                    WHERE t.level = "fine"
                       AND ns.stock_code IN ({ph})''',
                 industry_codes,
             ).fetchall()

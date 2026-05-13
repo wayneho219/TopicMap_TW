@@ -83,7 +83,7 @@ export function useRecurringTW() {
 }
 
 
-export type IndustrySortKey = 'change' | 'volume'
+export type IndustrySortKey = 'invested' | 'change' | 'volume'
 export type IndustrySortOrder = 'asc' | 'desc'
 
 export interface IndustryData {
@@ -93,6 +93,7 @@ export interface IndustryData {
   decline: number
   changePercent: number
   totalVolume: number
+  totalInvested: number
 }
 
 export interface IndustryTopic {
@@ -128,4 +129,18 @@ export function useIndustryTopics(name: string): { topics: IndustryTopic[]; load
       .catch(() => { setTopics([]); setLoaded(true) })
   }, [name])
   return { topics, loaded }
+}
+
+export function useIndustryStocks(name: string, sort: string = 'change', order: string = 'desc'): { stocks: MarketStock[]; loaded: boolean } {
+  const [stocks, setStocks] = useState<MarketStock[]>([])
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    if (!name) { setStocks([]); setLoaded(false); return }
+    setLoaded(false)
+    fetch(`/api/market/industry/${encodeURIComponent(name)}/stocks?sort=${sort}&order=${order}`)
+      .then((r) => r.json())
+      .then((data: MarketStock[]) => { setStocks(data); setLoaded(true) })
+      .catch(() => { setStocks([]); setLoaded(true) })
+  }, [name, sort, order])
+  return { stocks, loaded }
 }

@@ -12,67 +12,80 @@ There is a secondary pipeline described in [SA.md](SA.md) — an "AI Investment 
 
 ## Setup
 
-Install dependencies:
+### Python Dependencies
+
+Install core dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-Additional packages required by `topic_model.py` that are not in `requirements.txt`:
+Additional packages required by `topic_model.py`:
 ```bash
-pip install feedparser sentence-transformers umap-learn scikit-learn jieba
+pip install feedparser sentence-transformers umap-learn scikit-learn jieba yfinance
 ```
+
+### Frontend Dependencies
+
+```bash
+cd frontend && npm install
+```
+
+### Database
+
+`data/tw_stock_list.sqlite3` is the primary database. It contains:
+- `tw_stock_list` — real-time market data
+- `nlp_topics` — 25 medium-level + 60 fine-level topics
+- `nlp_topic_stocks` — topic × stock associations
 
 ## Running the Pipeline
 
+The complete data pipeline flows: RSS → articles.csv → topic modeling → labels → SQLite → API → frontend.
+
 ### Step 1: RSS Scraping (`rss_scraper.py`)
 
-Run directly to test scraping with built-in sample RSS feeds and stock dictionary:
 ```bash
 python rss_scraper.py
 ```
 
-The core function is `fetch_and_process_rss(rss_urls, stock_dict)` — import and call it with your own RSS URL list and stock-to-keyword mapping dict. Output is a pandas DataFrame with columns: `stock_id`, `ArticleTitle`, `Tags`, `ArticleText`, `ArticleCreateTime`.
+Outputs `articles.csv` with columns: `stock_id`, `ArticleTitle`, `Tags`, `ArticleText`, `ArticleCreateTime`.
 
-To use the full market stock list, load from CSV per [transform.py](transform.py):
+Core function: `fetch_and_process_rss(rss_urls, stock_dict)` — takes RSS URL list and stock-to-keyword mapping. Built-in sample feeds are available for testing.
+
+To load the full market stock list from CSV:
 ```bash
-# transform.py shows how to convert tw_stocks.csv → stock dict for the scraper
 python transform.py
 ```
 
 ### Step 2: Topic Modeling (`topic_model.py`)
 
-The script runs in two phases controlled by the `PHASE` variable at the top of the file:
+Controlled by `PHASE` variable at the top of the file.
 
-**Phase 1 — Cluster** (generate naming material):
+**Phase 1 — Cluster:**
 ```bash
-# Set PHASE = "cluster" at top of topic_model.py, then:
+# Set PHASE = "cluster", then:
 python topic_model.py
 # Outputs: labels/label_input.txt (for human/LLM labeling), labels/label_template.json
 ```
 
-**Phase 2 — Label** (apply labels and visualize):
+**Phase 2 — Label & Stock Price:**
 ```bash
-# 1. Fill in labels/label_template.json and save as labels/topic_labels.json
-# 2. Set PHASE = "label" at top of topic_model.py, then:
+# 1. Fill in labels/label_template.json, save as labels/topic_labels.json
+# 2. Set PHASE = "label", then:
 python topic_model.py
-# Outputs: output/tsne_*.html, output/topics_*.csv, output/result_all.csv, output/tree_*.html, output/dendrogram.html
+# Outputs: output/result_all.csv (with invested_amount), output/tsne_*.html, output/tree_*.html, etc.
 ```
 
-**Input required:** `articles.csv` with columns `ArticleText`, `ArticleCreateTime`, `StockId`.
+**Input:** `articles.csv` with columns `ArticleText`, `ArticleCreateTime`, `StockId`.
 
-### Dashboard (`dashboard.py`)
+**Caching:** Embeddings cached to `cache/_embeddings.npy`. Delete to force re-embedding.
 
-先完成 Phase 2，再執行：
+### Step 3: Import to SQLite (`scripts/import_nlp_topics.py`)
+
 ```bash
-python dashboard.py
+python scripts/import_nlp_topics.py
 ```
 
-輸出 `output/dashboard.html`（自動開啟瀏覽器）。包含三個分區：
-- 主題熱度排行（橫向長條圖）
-- 熱度 × 漲跌幅散點圖
-- 個股主題明細表
-
-**Caching:** Embeddings are cached to `cache/_embeddings.npy` to avoid recomputation. Delete this file to force re-embedding.
+Imports Phase 2 outputs into `tw_stock_list.sqlite3` (idempotent). Creates/updates `nlp_topics` (85 topics) and `nlp_topic_stocks` tables.
 
 ## Architecture
 
@@ -102,17 +115,56 @@ RSS Feeds → rss_scraper.py → articles.csv
 6. **Keyword extraction** — TF-IDF + jieba tokenization per cluster
 7. **Visualization** — Interactive HTML: scatter plots, icicle/treemap/sunburst hierarchy charts, dendrogram
 
+## Running the Application
+
+### Backend (FastAPI)
+
+```bash
+uvicorn backend.main:app --reload --port 8000
+```
+
+Key endpoints:
+- `GET /api/market/hot` — hot stock rankings
+- `GET /api/market/sectors` — sector performance
+- `GET /api/stocks/{id}` — individual stock details
+- `GET /api/topics?level=medium|fine` — NLP topics (sorted by invested amount)
+- `GET /api/topics/{name}/stocks` — stocks in a topic
+
+### Frontend (React + Vite)
+
+```bash
+cd frontend && npm run dev
+```
+
+Opens at `http://localhost:5173`. Built with React 18, TypeScript, Vite, Tailwind CSS, and react-router-dom.
+
+Pages:
+- **Market** — hot stocks; sector/topic tabs
+- **Sector** — industry performance + stock drilldown
+- **Topic** — 25 medium-level topics with accordion; expandable to 60 fine-level topics
+- **Topic Detail** — stocks in a topic; sortable by return/volume/discussion
+- **Stock Detail** — individual stock with historical price chart
+- **Watchlist** — personal tracking list
+
+## Testing
+
+```bash
+python -m pytest tests/ -v
+```
+
+Test files cover backend APIs, NLP topic classification, database imports, and dashboard functionality.
+
 ## LLM Wiki
 
-本專案維護一個 LLM wiki，位於 `wiki/`，原始來源放在 `raw/`。
+Project maintains a knowledge base at `wiki/`:
+- Read `wiki/SCHEMA.md` before browsing
+- Use `wiki/index.md` to find pages
+- Log changes in `wiki/log.md`
 
-- 進入 wiki 前，先讀 `wiki/SCHEMA.md`（慣例設定）
-- 查詢時，先讀 `wiki/index.md` 找候選頁面
-- 操作後，將記錄附加至 `wiki/log.md`
-
-### Intermediate Files (generated, not committed)
+## Generated / Temporary Files (not committed)
 
 - `cache/_embeddings.npy` — cached sentence embeddings
-- `cache/_checkpoint.parquet` — DataFrame with cluster assignments for Phase 2 resume
-- `cache/_cluster_{level}.npy` — cluster assignment arrays (coarse/medium/fine)
+- `cache/_checkpoint.parquet` — DataFrame with Phase 2 cluster assignments
+- `cache/_cluster_{level}.npy` — cluster arrays (coarse/medium/fine)
 - `cache/_linkage.npy` — Ward linkage matrix for dendrogram
+- `output/` — Phase 2 visualizations (HTML) and results (CSV)

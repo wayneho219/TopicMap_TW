@@ -15,6 +15,7 @@ const conceptGroups = conceptGroupsData as Record<string, string[]>
 import { useStock } from '../hooks/useStock'
 import { useWatchlist } from '../hooks/useWatchlist'
 import { useIntraday, type IntradayPoint } from '../hooks/useIntraday'
+import { useStockTopics } from '../hooks/useTopics'
 
 const chartTabs = ['K線', '五檔', '價量', '明細', '券商分點', '指標', '籌碼', '社群']
 const timeTabs = ['分時', '日', '週', '月']
@@ -102,6 +103,7 @@ export function StockDetailPage() {
   const { stock, loading, error } = useStock(id)
   const { isWatched, toggle } = useWatchlist(id)
   const { data: intradayData, loading: intradayLoading } = useIntraday(id)
+  const nlpTopics = useStockTopics(id ?? '')
 
   if (loading) {
     return (
@@ -178,16 +180,16 @@ export function StockDetailPage() {
             ))}
           </div>
 
-          {/* 概念股群組標籤 */}
-          {(conceptGroups[id ?? ''] ?? []).length > 0 && (
+          {/* NLP 主題標籤 */}
+          {nlpTopics.length > 0 && (
             <div className="flex gap-1.5 mb-3 flex-wrap">
-              {(conceptGroups[id ?? ''] ?? []).map((g) => (
+              {nlpTopics.map((t) => (
                 <button
-                  key={g}
-                  onClick={() => navigate(`/chain/${encodeURIComponent(g)}`)}
-                  className="bg-[#1a2e20] border border-[#2dba6a]/40 text-[#2dba6a] text-[11px] px-2 py-0.5 rounded-full active:opacity-60"
+                  key={t.id}
+                  onClick={() => navigate(`/topic/fine/${encodeURIComponent(t.name)}`)}
+                  className="bg-[#1a2a3a] border border-[#3a7bd5]/40 text-[#3a7bd5] text-[11px] px-2 py-0.5 rounded-full active:opacity-60"
                 >
-                  # {g}
+                  ✦ {t.name}
                 </button>
               ))}
             </div>

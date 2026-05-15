@@ -223,6 +223,8 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Claude Code (personal local rules — not for sharing)
+# Claude Code and AI tool artifacts (personal, not for sharing)
 .claude/
 CLAUDE.md
+.superpowers/
+docs/superpowers/

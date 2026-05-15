@@ -20,12 +20,9 @@ class StockRepository:
 
     def find_by_id(self, stock_id: str) -> Optional[sqlite3.Row]:
         with get_connection(self._db) as conn:
-            try:
-                return conn.execute(
-                    'SELECT * FROM tw_stock_list WHERE stock_code = ?', (stock_id,)
-                ).fetchone()
-            except sqlite3.OperationalError:
-                return None
+            return conn.execute(
+                'SELECT * FROM tw_stock_list WHERE stock_code = ?', (stock_id,)
+            ).fetchone()
 
     def get_prices(self, codes: list[str]) -> list[sqlite3.Row]:
         if not codes:

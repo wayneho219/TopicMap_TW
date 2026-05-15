@@ -25,6 +25,9 @@ app.include_router(_market_router.router)
 from backend.routers import topics as _topics_router
 app.include_router(_topics_router.router)
 
+from backend.routers import industries as _industries_router
+app.include_router(_industries_router.router)
+
 DB_PATH       = os.path.join(os.path.dirname(__file__), '..', 'data', 'tw_stock_list.sqlite3')
 DB_CHAIN_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'tpex_industry_chain.sqlite3')
 

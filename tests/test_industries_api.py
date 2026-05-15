@@ -89,13 +89,20 @@ def client(tmp_path):
     _seed_chain(chain_db)
 
     import backend.main as m
-    orig_db       = m.DB_PATH
-    orig_chain_db = m.DB_CHAIN_PATH
-    m.DB_PATH       = main_db
-    m.DB_CHAIN_PATH = chain_db
+    import backend.database as db_module
+    orig_db         = m.DB_PATH
+    orig_chain_db   = m.DB_CHAIN_PATH
+    orig_db_mod     = db_module.DB_PATH
+    orig_chain_mod  = db_module.DB_CHAIN_PATH
+    m.DB_PATH           = main_db
+    m.DB_CHAIN_PATH     = chain_db
+    db_module.DB_PATH        = main_db
+    db_module.DB_CHAIN_PATH  = chain_db
     yield TestClient(m.app)
-    m.DB_PATH       = orig_db
-    m.DB_CHAIN_PATH = orig_chain_db
+    m.DB_PATH           = orig_db
+    m.DB_CHAIN_PATH     = orig_chain_db
+    db_module.DB_PATH        = orig_db_mod
+    db_module.DB_CHAIN_PATH  = orig_chain_mod
 
 # ── /api/market/industries ──────────────────────────────────────
 

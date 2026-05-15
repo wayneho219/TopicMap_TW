@@ -245,7 +245,7 @@ def main() -> None:
     session = requests.Session()
     session.headers.update(
         {
-            "User-Agent": "EventCorr/1.0 research scraper",
+            "User-Agent": "TopicMapTW/1.0 research scraper",
             "Accept-Language": "zh-TW,zh;q=0.9",
         }
     )

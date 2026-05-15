@@ -2,6 +2,14 @@
 cache/
 articles.csv
 
+# Data files — fetchable from external APIs, no need to version
+data/*.sqlite3
+data/*.json
+data/*.csv
+
+# Pipeline output — generated artifacts, reproducible from source
+output/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

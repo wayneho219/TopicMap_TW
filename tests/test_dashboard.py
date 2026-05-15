@@ -1,7 +1,9 @@
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import pandas as pd
 import pytest
 from plotly.graph_objects import Figure
-from dashboard import (
+from pipeline.dashboard import (
     filter_stock_table,
     build_heat_figure,
     build_scatter_figure,

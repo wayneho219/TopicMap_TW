@@ -19,6 +19,9 @@ app.add_middleware(
 from backend.routers import stocks as _stocks_router
 app.include_router(_stocks_router.router)
 
+from backend.routers import market as _market_router
+app.include_router(_market_router.router)
+
 DB_PATH       = os.path.join(os.path.dirname(__file__), '..', 'data', 'tw_stock_list.sqlite3')
 DB_CHAIN_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'tpex_industry_chain.sqlite3')
 

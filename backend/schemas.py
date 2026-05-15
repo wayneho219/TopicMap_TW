@@ -23,7 +23,7 @@ class StockSearchResult(BaseModel):
     id: str
     name: str
     market: str
-    industry: Optional[str]
+    industry: Optional[str] = None
     price: float
     change: float
     changePercent: float
@@ -37,13 +37,13 @@ class StockDetail(BaseModel):
     changePercent: float
     volume: int
     market: str
-    industry: Optional[str]
+    industry: Optional[str] = None
     tags: list[str]
     status: str
-    high: Optional[float]
-    low: Optional[float]
-    prevClose: Optional[float]
-    open: Optional[float]
+    high: Optional[float] = None
+    low: Optional[float] = None
+    prevClose: Optional[float] = None
+    open: Optional[float] = None
 
 
 class IntradayPoint(BaseModel):
@@ -82,10 +82,10 @@ class TopicSummary(BaseModel):
     id: int
     name: str
     level: str
-    parentId: Optional[int]
-    totalInvested: Optional[float]
-    articleCount: Optional[int]
-    stockCount: Optional[int]
+    parentId: Optional[int] = None
+    totalInvested: Optional[float] = None
+    articleCount: Optional[int] = None
+    stockCount: Optional[int] = None
 
 
 class TopicStock(BaseModel):
@@ -95,5 +95,5 @@ class TopicStock(BaseModel):
     change: float
     changePercent: float
     volume: int
-    articleCount: Optional[int]
-    topicInvested: Optional[float]
+    articleCount: Optional[int] = None
+    topicInvested: Optional[float] = None

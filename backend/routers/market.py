@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from backend.services.market import MarketService
+from backend.repositories.market import MarketRepository
 from backend.schemas import StockSummary, RankedStock, SectorSummary
 from typing import List
 
@@ -7,7 +8,8 @@ router = APIRouter(prefix='/api/market', tags=['market'])
 
 
 def _svc() -> MarketService:
-    return MarketService()
+    import backend.database as _db
+    return MarketService(MarketRepository(_db.DB_PATH, _db.DB_CHAIN_PATH))
 
 
 @router.get('/hot', response_model=List[StockSummary])

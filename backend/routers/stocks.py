@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from backend.services.stock import StockService
+from backend.repositories.stock import StockRepository
 from backend.schemas import (
     StockSummary, StockSearchResult, StockDetail,
     TopicSummary, IntradayPoint
@@ -9,7 +10,8 @@ router = APIRouter(prefix='/api/stocks', tags=['stocks'])
 
 
 def _svc() -> StockService:
-    return StockService()
+    import backend.database as _db
+    return StockService(StockRepository(_db.DB_PATH))
 
 
 @router.get('/prices', response_model=list[StockSummary])

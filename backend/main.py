@@ -7,7 +7,7 @@ from collections import defaultdict
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI()
+app = FastAPI(title="TopicMap TW")
 
 app.add_middleware(
     CORSMiddleware,

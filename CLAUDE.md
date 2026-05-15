@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**EventCorr** is an AI-driven data pipeline for Taiwan stock market analysis. It correlates news events with individual stock performance by:
+**TopicMap TW** is an AI-driven data pipeline for Taiwan stock market analysis. It correlates news events with individual stock performance by:
 1. Scraping RSS financial news feeds and tagging articles to matching stocks
 2. Running hierarchical topic modeling (NLP clustering) on article text to identify concept stock groups and supply chain themes
 
-There is a secondary pipeline described in [SA.md](SA.md) — an "AI Investment Decision Room" focused on dynamic stock labeling and sentiment analysis for Taiwan stocks (台股).
+There is a secondary pipeline described in [docs/SA.md](docs/SA.md) — an "AI Investment Decision Room" focused on dynamic stock labeling and sentiment analysis for Taiwan stocks (台股).
 
 ## Setup
 
@@ -19,7 +19,7 @@ Install core dependencies:
 pip install -r requirements.txt
 ```
 
-Additional packages required by `topic_model.py`:
+Additional packages required by `pipeline/topic_model.py`:
 ```bash
 pip install feedparser sentence-transformers umap-learn scikit-learn jieba yfinance
 ```
@@ -41,37 +41,37 @@ cd frontend && npm install
 
 The complete data pipeline flows: RSS → articles.csv → topic modeling → labels → SQLite → API → frontend.
 
-### Step 1: RSS Scraping (`rss_scraper.py`)
+### Step 1: RSS Scraping (`pipeline/rss_scraper.py`)
 
 ```bash
-python rss_scraper.py
+python pipeline/rss_scraper.py
 ```
 
 Outputs `articles.csv` with columns: `stock_id`, `ArticleTitle`, `Tags`, `ArticleText`, `ArticleCreateTime`.
 
 Core function: `fetch_and_process_rss(rss_urls, stock_dict)` — takes RSS URL list and stock-to-keyword mapping. Built-in sample feeds are available for testing.
 
-To load the full market stock list from CSV:
+To load the full market stock list from CSV per [scripts/transform.py](scripts/transform.py):
 ```bash
-python transform.py
+python scripts/transform.py
 ```
 
-### Step 2: Topic Modeling (`topic_model.py`)
+### Step 2: Topic Modeling (`pipeline/topic_model.py`)
 
 Controlled by `PHASE` variable at the top of the file.
 
 **Phase 1 — Cluster:**
 ```bash
-# Set PHASE = "cluster", then:
-python topic_model.py
-# Outputs: labels/label_input.txt (for human/LLM labeling), labels/label_template.json
+# Set PHASE = "cluster" at top of pipeline/topic_model.py, then:
+python pipeline/topic_model.py
+# Outputs: data/labels/label_input.txt (for human/LLM labeling), data/labels/label_template.json
 ```
 
 **Phase 2 — Label & Stock Price:**
 ```bash
-# 1. Fill in labels/label_template.json, save as labels/topic_labels.json
-# 2. Set PHASE = "label", then:
-python topic_model.py
+# 1. Fill in data/labels/label_template.json, save as data/labels/topic_labels.json
+# 2. Set PHASE = "label" at top of pipeline/topic_model.py, then:
+python pipeline/topic_model.py
 # Outputs: output/result_all.csv (with invested_amount), output/tsne_*.html, output/tree_*.html, etc.
 ```
 
@@ -87,25 +87,31 @@ python scripts/import_nlp_topics.py
 
 Imports Phase 2 outputs into `tw_stock_list.sqlite3` (idempotent). Creates/updates `nlp_topics` (85 topics) and `nlp_topic_stocks` tables.
 
+### Dashboard (`pipeline/dashboard.py`)
+
+```bash
+python pipeline/dashboard.py
+```
+
 ## Architecture
 
 ### Data Flow
 
 ```
-RSS Feeds → rss_scraper.py → articles.csv
-                                  ↓
-                          topic_model.py (Phase 1: cluster)
-                                  ↓
-                          labels/label_input.txt / labels/label_template.json
-                                  ↓
-                          [Human/LLM labels → labels/topic_labels.json]
-                                  ↓
-                          topic_model.py (Phase 2: label)
-                                  ↓
+RSS Feeds → pipeline/rss_scraper.py → articles.csv
+                                            ↓
+                          pipeline/topic_model.py (Phase 1: cluster)
+                                            ↓
+                          data/labels/label_input.txt / data/labels/label_template.json
+                                            ↓
+                          [Human/LLM labels → data/labels/topic_labels.json]
+                                            ↓
+                          pipeline/topic_model.py (Phase 2: label)
+                                            ↓
                     output/result_all.csv + output/*.html visualizations
 ```
 
-### Topic Modeling Pipeline (topic_model.py)
+### Topic Modeling Pipeline (pipeline/topic_model.py)
 
 1. **Embedding** — BGE-large-zh-v1.5 (1024d) via `sentence-transformers`
 2. **Dim reduction** — UMAP (15d) → T-SNE (2d for visualization)

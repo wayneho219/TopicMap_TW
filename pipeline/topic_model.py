@@ -233,17 +233,17 @@ if PHASE == "cluster":
 
             template[level][str(cid)] = ""
 
-    with open("label_input.txt", "w", encoding="utf-8") as f:
+    with open("data/labels/label_input.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-    with open("label_template.json", "w", encoding="utf-8") as f:
+    with open("data/labels/label_template.json", "w", encoding="utf-8") as f:
         json.dump(template, f, ensure_ascii=False, indent=2)
 
-    print("\n  label_input.txt   ← 貼給 LLM 或自行命名")
-    print("  label_template.json ← 填入名稱後將檔名改為 topic_labels.json")
+    print("\n  data/labels/label_input.txt   ← 貼給 LLM 或自行命名")
+    print("  data/labels/label_template.json ← 填入名稱後將檔名改為 data/labels/topic_labels.json")
     print("\n完成 Phase 1。命名完畢後：")
     print("  1. 將名稱填入 label_template.json")
-    print("  2. 存為 topic_labels.json")
+    print("  2. 存為 data/labels/topic_labels.json")
     print('  3. 將程式頂端 PHASE = "cluster" 改為 PHASE = "label"')
     print("  4. 重新執行")
 
@@ -254,10 +254,10 @@ if PHASE == "cluster":
 elif PHASE == "label":
     print("\nPHASE 2 | 套用標籤 + 輸出視覺化")
 
-    if not os.path.exists("labels/topic_labels.json"):
-        raise FileNotFoundError("找不到 topic_labels.json，請先完成 Phase 1 命名步驟。")
+    if not os.path.exists("data/labels/topic_labels.json"):
+        raise FileNotFoundError("找不到 data/labels/topic_labels.json，請先完成 Phase 1 命名步驟。")
 
-    with open("labels/topic_labels.json", encoding="utf-8") as f:
+    with open("data/labels/topic_labels.json", encoding="utf-8") as f:
         topic_labels: dict[str, dict[str, str]] = json.load(f)
 
     # 從暫存還原分群（跳過耗時步驟）

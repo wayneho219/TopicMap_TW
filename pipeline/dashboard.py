@@ -588,7 +588,7 @@ def _build_layout() -> html.Div:
 
             # Footer
             html.Div(
-                "CATHAY SECURITIES CORP. · 概念股監控系統 · EventCorr AI Pipeline · 僅供內部研究參考，不構成投資建議",
+                "CATHAY SECURITIES CORP. · 概念股監控系統 · TopicMap TW · 僅供內部研究參考，不構成投資建議",
                 style={"textAlign": "center", "fontSize": "10px",
                        "color": "rgba(136,136,136,.5)",
                        "letterSpacing": "0.1em",

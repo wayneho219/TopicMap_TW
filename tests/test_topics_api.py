@@ -61,10 +61,11 @@ def client(tmp_path):
     db = str(tmp_path / 'test.sqlite3')
     _seed(db)
     import backend.main as m
-    original = m.DB_PATH
-    m.DB_PATH = db
+    import backend.database as db_module
+    original_db = db_module.DB_PATH
+    db_module.DB_PATH = db
     yield TestClient(m.app)
-    m.DB_PATH = original
+    db_module.DB_PATH = original_db
 
 def test_get_topics_medium_sorted(client):
     r = client.get('/api/topics?level=medium')

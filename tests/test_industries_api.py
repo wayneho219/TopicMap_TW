@@ -34,6 +34,8 @@ def _seed_main(path: str):
         CREATE TABLE nlp_topic_stocks (
             topic_id INTEGER NOT NULL,
             stock_code TEXT NOT NULL,
+            article_count INTEGER NOT NULL DEFAULT 0,
+            total_invested REAL NOT NULL DEFAULT 0,
             PRIMARY KEY (topic_id, stock_code)
         );
         CREATE TABLE nlp_topic_industry_map (
@@ -49,8 +51,8 @@ def _seed_main(path: str):
             ('3481','群創',  '電腦週邊', 15.0,'-0.5','-3.23%', 5000000),
             ('9990','測試甲','電腦週邊', 50.0,'-1',  '-2.00%', 1000000);
         INSERT INTO nlp_topics VALUES (1,'AI伺服器','fine',NULL,100000,10,2);
-        INSERT INTO nlp_topic_stocks VALUES (1,'2330');
-        INSERT INTO nlp_topic_stocks VALUES (1,'2454');
+        INSERT INTO nlp_topic_stocks VALUES (1,'2330',10,500000.0);
+        INSERT INTO nlp_topic_stocks VALUES (1,'2454',5,200000.0);
         INSERT INTO nlp_topic_industry_map VALUES (1,1,'半導體','2026-01-01T00:00:00');
     ''')
     conn.commit()
@@ -89,13 +91,14 @@ def client(tmp_path):
     _seed_chain(chain_db)
 
     import backend.main as m
-    orig_db       = m.DB_PATH
-    orig_chain_db = m.DB_CHAIN_PATH
-    m.DB_PATH       = main_db
-    m.DB_CHAIN_PATH = chain_db
+    import backend.database as db_module
+    orig_db_mod     = db_module.DB_PATH
+    orig_chain_mod  = db_module.DB_CHAIN_PATH
+    db_module.DB_PATH        = main_db
+    db_module.DB_CHAIN_PATH  = chain_db
     yield TestClient(m.app)
-    m.DB_PATH       = orig_db
-    m.DB_CHAIN_PATH = orig_chain_db
+    db_module.DB_PATH        = orig_db_mod
+    db_module.DB_CHAIN_PATH  = orig_chain_mod
 
 # ── /api/market/industries ──────────────────────────────────────
 

@@ -3,13 +3,13 @@ from fastapi import APIRouter, Depends
 from backend.services.topic import TopicService
 from backend.repositories.topic import TopicRepository
 from backend.schemas import TopicSummary, TopicStock
-import backend.main as _main
 
 router = APIRouter(prefix='/api/topics', tags=['topics'])
 
 
 def _svc() -> TopicService:
-    return TopicService(TopicRepository(_main.DB_PATH))
+    import backend.database as _db
+    return TopicService(TopicRepository(_db.DB_PATH))
 
 
 @router.get('', response_model=List[TopicSummary])

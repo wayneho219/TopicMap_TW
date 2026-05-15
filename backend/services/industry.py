@@ -40,7 +40,7 @@ class IndustryService:
                 decline=r['dn'],
                 changePercent=round(r['avg_chg'] or 0, 2),
                 totalVolume=r['total_vol'] or 0,
-                totalInvested=0.0,
+                totalInvested=r['total_invested'] or 0.0,
             )
             for r in rows
         ]

@@ -19,23 +19,25 @@ class IndustryRepository:
     def get_industries(self, sort: str, order: str) -> Tuple[List[sqlite3.Row], Dict[str, List[str]]]:
         """Returns (rows, industry_codes_map)."""
         dir_ = 'ASC' if order == 'asc' else 'DESC'
-        col = {'volume': 'total_vol'}.get(sort, 'avg_chg')
+        col = {'volume': 'total_vol', 'invested': 'total_invested'}.get(sort, 'avg_chg')
         with get_connection(self._db) as conn:
             rows = conn.execute(
-                f'''SELECT industry_name,
-                           AVG(CAST(REPLACE(REPLACE(change_pct,"+",""),"%","") AS REAL)) AS avg_chg,
-                           SUM(CASE WHEN CAST(REPLACE(REPLACE(change_pct,"+",""),"%","") AS REAL) > 0
+                f'''SELECT t.industry_name,
+                           AVG(CAST(REPLACE(REPLACE(t.change_pct,"+",""),"%","") AS REAL)) AS avg_chg,
+                           SUM(CASE WHEN CAST(REPLACE(REPLACE(t.change_pct,"+",""),"%","") AS REAL) > 0
                                THEN 1 ELSE 0 END) AS up,
-                           SUM(CASE WHEN CAST(REPLACE(REPLACE(change_pct,"+",""),"%","") AS REAL) < 0
+                           SUM(CASE WHEN CAST(REPLACE(REPLACE(t.change_pct,"+",""),"%","") AS REAL) < 0
                                THEN 1 ELSE 0 END) AS dn,
-                           SUM(COALESCE(volume, 0)) AS total_vol,
-                           GROUP_CONCAT(stock_code) AS codes
-                    FROM tw_stock_list
-                    WHERE close_price IS NOT NULL
-                      AND change_pct IS NOT NULL AND change_pct != ""
-                      AND industry_name IS NOT NULL AND industry_name != ""
-                      AND stock_code NOT LIKE "0%"
-                    GROUP BY industry_name
+                           SUM(COALESCE(t.volume, 0)) AS total_vol,
+                           COALESCE(SUM(ts.total_invested), 0) AS total_invested,
+                           GROUP_CONCAT(t.stock_code) AS codes
+                    FROM tw_stock_list t
+                    LEFT JOIN nlp_topic_stocks ts ON t.stock_code = ts.stock_code
+                    WHERE t.close_price IS NOT NULL
+                      AND t.change_pct IS NOT NULL AND t.change_pct != ""
+                      AND t.industry_name IS NOT NULL AND t.industry_name != ""
+                      AND t.stock_code NOT LIKE "0%"
+                    GROUP BY t.industry_name
                     ORDER BY {col} {dir_}''',
             ).fetchall()
         industry_codes: Dict[str, List[str]] = {

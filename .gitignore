@@ -9,6 +9,11 @@ data/*.csv
 
 # Pipeline output — generated artifacts, reproducible from source
 output/
+*.log
+debug_*.csv
+invested_amount_*.csv
+stock_theme_summary.csv
+label_template.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -9,15 +9,15 @@
 ```
 PTT Stock 看板
       ↓
-rss_scraper.py（文章抓取 + STOPWORDS 噪音過濾）
+pipeline/rss_scraper.py（文章抓取 + STOPWORDS 噪音過濾）
       ↓
 articles.csv（~48萬篇文章）
       ↓
-topic_model.py Phase 1：BGE embedding → UMAP → Ward 分群
+pipeline/topic_model.py Phase 1：BGE embedding → UMAP → Ward 分群
       ↓
-labels/label_template.json（人工/LLM 命名）
+data/labels/label_template.json（人工/LLM 命名）
       ↓
-topic_model.py Phase 2：標籤套用 + yfinance 股價抓取
+pipeline/topic_model.py Phase 2：標籤套用 + yfinance 股價抓取
       ↓
 output/result_all.csv（含 close_price / volume / invested_amount）
       ↓
@@ -28,7 +28,7 @@ data/tw_stock_list.sqlite3
   ├── nlp_topics（25 中層 + 60 細層主題）
   └── nlp_topic_stocks（主題 × 個股關聯）
       ↓
-backend/main.py（FastAPI）
+backend/（FastAPI，Router / Service / Repository 三層架構）
       ↓
 frontend（React + TypeScript + Vite + Tailwind）
 ```
@@ -44,8 +44,8 @@ frontend（React + TypeScript + Vite + Tailwind）
 | 降維 | UMAP（15d）→ T-SNE（2d） |
 | 分群 | Ward 階層分群（`scipy`） |
 | 股價抓取 | `yfinance`（`.TW` ticker，近 2 年） |
-| 資料庫 | SQLite（`tw_stock_list.sqlite3`) |
-| 後端 | FastAPI + `sqlite3` |
+| 資料庫 | SQLite（`tw_stock_list.sqlite3`） |
+| 後端 | FastAPI + Pydantic v2，Router / Service / Repository 三層 OOP |
 | 前端 | React 18 + TypeScript + Vite + Tailwind CSS |
 | 路由 | `react-router-dom` |
 
@@ -71,7 +71,7 @@ cd frontend && npm install
 ### Step 1：文章爬取
 
 ```bash
-python rss_scraper.py
+python pipeline/rss_scraper.py
 ```
 
 輸出：`articles.csv`（欄位：`stock_id`, `ArticleTitle`, `Tags`, `ArticleText`, `ArticleCreateTime`）
@@ -79,16 +79,16 @@ python rss_scraper.py
 ### Step 2a：主題建模 Phase 1（分群）
 
 ```bash
-# 設定 PHASE = "cluster"（topic_model.py 頂部）
-python topic_model.py
-# 輸出：labels/label_input.txt、labels/label_template.json
+# 設定 PHASE = "cluster"（pipeline/topic_model.py 頂部）
+python pipeline/topic_model.py
+# 輸出：data/labels/label_input.txt、data/labels/label_template.json
 ```
 
 ### Step 2b：命名後執行 Phase 2（標籤 + 股價）
 
 ```bash
-# 填寫 labels/topic_labels.json 後，設定 PHASE = "label"
-python topic_model.py
+# 填寫 data/labels/topic_labels.json 後，設定 PHASE = "label"
+python pipeline/topic_model.py
 # 輸出：output/result_all.csv（含 invested_amount）
 #       output/invested_amount_medium.csv / fine.csv
 #       output/tsne_*.html、output/tree_*.html 等視覺化
@@ -138,10 +138,21 @@ cd frontend && npm run dev
 
 | 端點 | 說明 |
 |------|------|
-| `GET /api/market/hot` | 熱門股票排行 |
-| `GET /api/market/sectors` | 類股行情 |
+| `GET /api/market/hot` | 熱門股票排行（可篩選市場、類型、排序） |
+| `GET /api/market/search_hot` | 搜尋框熱門推薦 |
+| `GET /api/market/recurring/tw` | 定期定額熱門 ETF |
+| `GET /api/market/sectors` | 類股漲跌幅排行 |
+| `GET /api/market/sector/{name}/stocks` | 類股下個股列表 |
+| `GET /api/market/chain/{name}/stocks` | 供應鏈主題下個股 |
+| `GET /api/market/industries` | 產業統計（含 NLP / 供應鏈主題數） |
+| `GET /api/market/industry/{name}/stocks` | 產業下個股列表 |
+| `GET /api/market/industry/{name}/topics` | 產業相關主題（tpex + nlp） |
+| `GET /api/stocks/prices` | 批次查詢個股報價 |
+| `GET /api/stocks/search` | 股票搜尋 |
 | `GET /api/stocks/{id}` | 個股詳情 |
-| `GET /api/topics?level=medium\|fine` | NLP 主題列表（依投入金額排序） |
+| `GET /api/stocks/{id}/topics` | 個股所屬 NLP 主題 |
+| `GET /api/stocks/{id}/intraday` | 個股當日分時資料 |
+| `GET /api/topics` | NLP 主題列表（`?level=medium\|fine`，依投入金額排序） |
 | `GET /api/topics/{name}/children` | 中層主題的細層子項 |
 | `GET /api/topics/{name}/stocks` | 主題下個股（支援排序） |
 
@@ -151,7 +162,6 @@ cd frontend && npm run dev
 
 ```bash
 python -m pytest tests/ -v
-# 29 個測試全數通過
 ```
 
 ---
@@ -159,19 +169,26 @@ python -m pytest tests/ -v
 ## 目錄結構
 
 ```
-EventCorr/
-├── rss_scraper.py          # 文章爬取
-├── topic_model.py          # NLP 主題建模
+TopicMap_TW/
+├── pipeline/
+│   ├── rss_scraper.py          # 文章爬取
+│   ├── topic_model.py          # NLP 主題建模
+│   └── dashboard.py            # 資料儀表板
 ├── scripts/
-│   ├── import_nlp_topics.py   # CSV → SQLite 匯入
-│   └── tw_stock_quote_sync.py # 行情同步
+│   ├── import_nlp_topics.py    # CSV → SQLite 匯入
+│   ├── tw_stock_quote_sync.py  # 行情同步
+│   └── tpex_industry_chain_scraper.py  # 供應鏈資料爬取
 ├── backend/
-│   └── main.py             # FastAPI 應用
-├── frontend/               # React + TypeScript 前端
+│   ├── main.py                 # FastAPI app（精簡，只做組裝）
+│   ├── database.py             # DB 連線 context manager
+│   ├── schemas.py              # Pydantic response models
+│   ├── repositories/           # DB 查詢層
+│   ├── services/               # 業務邏輯層
+│   └── routers/                # API 路由層
+├── frontend/                   # React + TypeScript 前端
 ├── data/
-│   └── tw_stock_list.sqlite3  # 主資料庫
-├── output/                 # Pipeline 輸出
-├── labels/                 # 主題標籤
-├── wiki/                   # LLM 知識庫
-└── tests/                  # 測試
+│   ├── tw_stock_list.sqlite3   # 主資料庫
+│   └── labels/                 # 主題標籤（label_template.json 等）
+├── wiki/                       # LLM 知識庫
+└── tests/                      # 測試
 ```

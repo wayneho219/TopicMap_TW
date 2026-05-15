@@ -119,7 +119,7 @@ class MarketRepository:
                     (name,),
                 ).fetchall()
             return [r['stock_code'] for r in rows]
-        except Exception:
+        except (sqlite3.OperationalError, FileNotFoundError):
             return []
 
     def get_stocks_by_codes(self, codes: List[str], sort: str,
